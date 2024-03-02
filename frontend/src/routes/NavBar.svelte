@@ -52,8 +52,8 @@
     </NavUl>
 
     <div class="flex ml-auto space-x-2 mt-1">
-        <GradientButton href="/#" outline color="purpleToPink">Login</GradientButton>
-        <GradientButton href="/#" outline color="purpleToPink" class="mr-2">Signup</GradientButton>
+        <GradientButton href="/streamerlogin" outline color="purpleToPink">Login</GradientButton>
+        <GradientButton href="/streamerregister" outline color="purpleToPink" class="mr-2">Signup</GradientButton>
        
     </div>
 </Navbar>
