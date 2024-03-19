@@ -8,13 +8,15 @@
         NavHamburger,
         Button,
         Input,
-        GradientButton 
+        GradientButton,
     } from "flowbite-svelte";
     import { SearchOutline } from "flowbite-svelte-icons";
     import Logo from "../lib/logo.svg";
+
+    import StreamerLoginComponent from "./StreamerLoginComponent.svelte";
 </script>
 
-<Navbar >
+<Navbar>
     <NavBrand href="/">
         <img src={Logo} class="me-3 h-6 sm:h-9" alt="Halogin Logo" />
         <span
@@ -23,7 +25,8 @@
             Halogin
         </span>
     </NavBrand>
-    <div class="flex md:order-2 ">
+    <div class="flex md:order-2">
+        <StreamerLoginComponent />
         <DarkMode class="border dark:border-gray-800 mr-4 ml-2" />
         <Button
             color="none"
@@ -36,8 +39,7 @@
         </Button>
         <div class="hidden relative md:block">
             <div
-            class="flex absolute inset-y-0 start-0 items-center ps-3 pointer-events-none"
-
+                class="flex absolute inset-y-0 start-0 items-center ps-3 pointer-events-none"
             >
                 <!-- <SearchOutline class="w-4 h-4" /> -->
             </div>
@@ -47,13 +49,19 @@
     </div>
     <NavUl>
         <NavLi href="/">Home</NavLi>
-        <NavLi href="/about">About</NavLi>
+        <NavLi href="/#">About</NavLi>
         <NavLi href="/#">Contact</NavLi>
     </NavUl>
 
     <div class="flex ml-auto space-x-2 mt-1">
-        <GradientButton href="/streamerlogin" outline color="purpleToPink">Login</GradientButton>
-        <GradientButton href="/streamerregister" outline color="purpleToPink" class="mr-2">Signup</GradientButton>
-       
+        <GradientButton href="/streamerlogin" outline color="purpleToPink"
+            >Login</GradientButton
+        >
+        <GradientButton
+            href="/streamerregister"
+            outline
+            color="purpleToPink"
+            class="mr-2">Signup</GradientButton
+        >
     </div>
 </Navbar>
