@@ -59,7 +59,6 @@ impl GoogleSession {
     const CLIENT_SECRET: &'static str = "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";
 
     pub async fn from_code(redirect_url: String, code: String) -> Result<Self, Error> {
-        println!("{}, {:?}", redirect_url, redirect_url);
         let client = GoogleClient::new(
             ClientId::new(Self::CLIENT_ID.into()),
             Some(ClientSecret::new(Self::CLIENT_SECRET.into())),

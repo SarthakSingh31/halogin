@@ -79,6 +79,7 @@ enum AuthEndpoint {
 struct LoginParams {
     redirect_origin: String,
     code: String,
+    keep_logged_in: bool,
 }
 
 async fn login(
@@ -117,10 +118,12 @@ async fn login(
 
             cookie.set_secure(true);
             cookie.set_http_only(true);
-            cookie.set_expires(OffsetDateTime::new_utc(
-                expires_at.date(),
-                expires_at.time(),
-            ));
+            if login_params.keep_logged_in {
+                cookie.set_expires(OffsetDateTime::new_utc(
+                    expires_at.date(),
+                    expires_at.time(),
+                ));
+            }
             cookie.set_path("/");
             cookie.set_secure(true);
 
@@ -131,10 +134,16 @@ async fn login(
     }
 }
 
+#[derive(Deserialize)]
+struct AttachParams {
+    redirect_origin: String,
+    code: String,
+}
+
 async fn attach(
     authentication: auth::Authentication,
     Path(endpoint): Path<AuthEndpoint>,
-    Json(login_params): Json<LoginParams>,
+    Json(login_params): Json<AttachParams>,
 ) -> Result<(), Error> {
     match authentication {
         auth::Authentication::Unauthenticated => Err(Error::Custom {

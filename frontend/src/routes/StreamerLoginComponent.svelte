@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { DarkMode, Heading } from "flowbite-svelte";
+    import { Checkbox, DarkMode, Heading } from "flowbite-svelte";
     import {
         Navbar,
         NavBrand,
@@ -12,6 +12,32 @@
     } from "flowbite-svelte";
     import { SearchOutline } from "flowbite-svelte-icons";
     import Logo from "../lib/logo.svg";
+
+    let checked = false;
+
+    function signInCallback(authResult: { code: string }) {
+        if (authResult["code"]) {
+            fetch("login/google", {
+                method: "POST",
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                body: JSON.stringify({
+                    redirect_origin: window.location.origin,
+                    code: authResult["code"],
+                    keep_logged_in: checked,
+                }),
+            });
+        } else {
+            // There was an error.
+        }
+    }
+
+    function googleSignInCallback() {
+        // @ts-expect-error
+        auth2.grantOfflineAccess().then(signInCallback);
+    }
 </script>
 
 <svelte:head>
@@ -39,46 +65,15 @@
 </svelte:head>
 
 <div>
-    <button id="googleSigninButton">Sign in with Google</button>
+    <button on:click={googleSignInCallback}>Sign in with Google</button>
     <button id="twitchSigninButton">Connect with Twitch</button>
+    <Checkbox bind:checked>Keep logged in</Checkbox>
     <script>
-        $("#googleSigninButton").click(function () {
-            auth2.grantOfflineAccess().then(signInCallback);
-        });
         $("#twitchSigninButton").click(function () {
-            auth2.grantOfflineAccess().then(signInCallback);
+            const CLIENT_ID = "65x8qdhtinpz5889thff2ae4o0nxrw";
+            window.open(
+                `https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${window.location.origin}&scope=channel%3Amanage%3Apolls+channel%3Aread%3Apolls&state=c3ab8aa609ea11e793ae92361f002671`,
+            );
         });
-    </script>
-    <script>
-        function signInCallback(authResult) {
-            console.log(authResult);
-
-            if (authResult["code"]) {
-                // Hide the sign-in button now that the user is authorized, for example:
-                $("#signinButton").attr("style", "display: none");
-
-                // Send the code to the server
-                $.ajax({
-                    type: "POST",
-                    url: "login/google",
-                    // Always include an `X-Requested-With` header in every AJAX request,
-                    // to protect against CSRF attacks.
-                    headers: {
-                        "X-Requested-With": "XMLHttpRequest",
-                    },
-                    contentType: "application/json; charset=utf-8",
-                    success: function (result) {
-                        // Handle or verify the server response.
-                    },
-                    processData: false,
-                    data: JSON.stringify({
-                        redirect_origin: window.location.origin,
-                        code: authResult["code"],
-                    }),
-                });
-            } else {
-                // There was an error.
-            }
-        }
     </script>
 </div>

@@ -76,7 +76,7 @@ impl UserSession {
     ) -> Result<Self, Error> {
         let token = rand::thread_rng()
             .sample_iter(&rand::distributions::Alphanumeric)
-            .take(7)
+            .take(256)
             .map(char::from)
             .collect();
         let session = UserSession {
