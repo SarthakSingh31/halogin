@@ -19,7 +19,7 @@ use diesel_async::{
     pooled_connection::{deadpool::Pool, AsyncDieselConnectionManager},
     AsyncPgConnection,
 };
-use models::{GoogleUser, User, UserData};
+use models::{User, UserData};
 use serde::Deserialize;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 
@@ -96,14 +96,15 @@ async fn login(
                     .await?;
 
             let mut conn = POOL.get().await?;
-            let user =
-                if let Some(google_user) = GoogleUser::from_sub(session.sub(), &mut conn).await? {
-                    User {
-                        id: google_user.user_id,
-                    }
-                } else {
-                    User::new(&mut conn).await?
-                };
+            let user = if let Some(google_user) =
+                models::GoogleSession::from_sub(session.sub(), &mut conn).await?
+            {
+                User {
+                    id: google_user.user_id,
+                }
+            } else {
+                User::new(&mut conn).await?
+            };
             let redirect = if UserData::from_user(user, &mut conn).await?.is_some() {
                 Redirect::temporary("home")
             } else {

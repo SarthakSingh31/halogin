@@ -18,7 +18,7 @@ CREATE TABLE InnerUserSession (
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
 );
 
-CREATE TABLE TwitchUser (
+CREATE TABLE TwitchSession (
     id TEXT PRIMARY KEY,
     access_token TEXT NOT NULL,
     expires_at TIMESTAMP NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE TwitchUser (
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
 );
 
-CREATE TABLE GoogleUser (
+CREATE TABLE GoogleSession (
     sub TEXT PRIMARY KEY,
     access_token TEXT NOT NULL,
     expires_at TIMESTAMP NOT NULL,

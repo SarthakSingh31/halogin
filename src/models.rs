@@ -125,9 +125,9 @@ impl UserSession {
 }
 
 #[derive(Insertable, Queryable)]
-#[diesel(table_name = crate::schema::twitchuser)]
+#[diesel(table_name = crate::schema::twitchsession)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct TwitchUser {
+pub struct TwitchSession {
     pub id: String,
     pub access_token: String,
     pub expires_at: PrimitiveDateTime,
@@ -136,9 +136,9 @@ pub struct TwitchUser {
 }
 
 #[derive(Insertable, Queryable)]
-#[diesel(table_name = crate::schema::googleuser)]
+#[diesel(table_name = crate::schema::googlesession)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct GoogleUser {
+pub struct GoogleSession {
     pub sub: String,
     pub access_token: String,
     pub expires_at: PrimitiveDateTime,
@@ -146,19 +146,33 @@ pub struct GoogleUser {
     pub user_id: Uuid,
 }
 
-impl GoogleUser {
+impl GoogleSession {
     pub async fn from_sub(
         sub: &str,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> Result<Option<Self>, Error> {
-        use crate::schema::googleuser::dsl as dsl_gu;
+        use crate::schema::googlesession::dsl as dsl_gs;
 
-        let user = dsl_gu::googleuser
-            .filter(dsl_gu::sub.eq(sub))
+        let user = dsl_gs::googlesession
+            .filter(dsl_gs::sub.eq(sub))
             .first(conn)
             .await
             .optional()?;
 
         Ok(user)
+    }
+
+    pub async fn get_sessions_for_user(
+        user: User,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Vec<Self>, Error> {
+        use crate::schema::googlesession::dsl as dsl_gs;
+
+        let sessions = dsl_gs::googlesession
+            .filter(dsl_gs::user_id.eq(user.id))
+            .load(conn)
+            .await?;
+
+        Ok(sessions)
     }
 }

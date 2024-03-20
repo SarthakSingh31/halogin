@@ -125,23 +125,23 @@ impl GoogleSession {
         user: User,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> Result<(), Error> {
-        use crate::schema::googleuser::dsl as dsl_gu;
+        use crate::schema::googlesession::dsl as dsl_gs;
 
-        diesel::insert_into(dsl_gu::googleuser)
-            .values(crate::models::GoogleUser {
+        diesel::insert_into(dsl_gs::googlesession)
+            .values(crate::models::GoogleSession {
                 sub: self.sub.clone(),
                 access_token: self.bearer_access_token.secret().clone(),
                 expires_at: self.expires_at.clone(),
                 refresh_token: self.refresh_token.secret().clone(),
                 user_id: user.id,
             })
-            .on_conflict(dsl_gu::sub)
+            .on_conflict(dsl_gs::sub)
             .do_update()
             .set((
-                dsl_gu::access_token.eq(self.bearer_access_token.secret()),
-                dsl_gu::expires_at.eq(&self.expires_at),
-                dsl_gu::refresh_token.eq(self.refresh_token.secret()),
-                dsl_gu::user_id.eq(&user.id),
+                dsl_gs::access_token.eq(self.bearer_access_token.secret()),
+                dsl_gs::expires_at.eq(&self.expires_at),
+                dsl_gs::refresh_token.eq(self.refresh_token.secret()),
+                dsl_gs::user_id.eq(&user.id),
             ))
             .execute(conn)
             .await?;
