@@ -1,5 +1,7 @@
-use std::{sync::LazyLock, time::Instant};
+use std::sync::LazyLock;
 
+use diesel::{pg::Pg, ExpressionMethods};
+use diesel_async::{AsyncConnection, RunQueryDsl};
 use oauth2::{
     basic::{
         BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
@@ -9,6 +11,9 @@ use oauth2::{
     AccessToken, AuthUrl, Client, ClientId, ClientSecret, ExtraTokenFields, RedirectUrl,
     RefreshToken, StandardTokenResponse, TokenResponse, TokenUrl,
 };
+use time::{OffsetDateTime, PrimitiveDateTime};
+
+use crate::{models::User, Error};
 
 static AUTH_URL: LazyLock<AuthUrl> = LazyLock::new(|| {
     AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".into())
@@ -42,7 +47,8 @@ pub struct IdTokenDecoded {
 #[derive(Debug, Clone)]
 pub struct GoogleSession {
     bearer_access_token: AccessToken,
-    expires_at_and_refresh_token: Option<(Instant, RefreshToken)>,
+    expires_at: PrimitiveDateTime,
+    refresh_token: RefreshToken,
     sub: String,
 }
 
@@ -69,8 +75,14 @@ impl GoogleSession {
 
         assert_eq!(*auth.token_type(), BasicTokenType::Bearer);
 
-        let expires_at = auth.expires_in().map(|duration| Instant::now() + duration);
-        let refresh_token = auth.refresh_token().map(|token| token.clone());
+        let expires_at = auth
+            .expires_in()
+            .map(|duration| OffsetDateTime::now_utc() + duration)
+            .expect("No expiry time specified");
+        let refresh_token = auth
+            .refresh_token()
+            .map(|token| token.clone())
+            .expect("No refresh token specified");
 
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.insecure_disable_signature_validation();
@@ -86,17 +98,43 @@ impl GoogleSession {
 
         GoogleSession {
             bearer_access_token: auth.access_token().clone(),
-            expires_at_and_refresh_token: match (expires_at, refresh_token) {
-                (None, None) => None,
-                (None, Some(_)) => {
-                    // Access token never expires so we don't need the refresh token
-                    None
-                },
-                (Some(_), None) => panic!("Only expires_at given, no refresh token given. This will expire at some point and log out the user"),
-                (Some(expires_at), Some(refresh_token)) => Some((expires_at, refresh_token)),
-            },
+            expires_at: PrimitiveDateTime::new(expires_at.date(), expires_at.time()),
+            refresh_token,
             sub: id_token_decoded.claims.sub,
         }
+    }
+
+    pub fn sub(&self) -> &str {
+        &self.sub
+    }
+
+    pub async fn insert_or_update_for_user(
+        &self,
+        user: User,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<(), Error> {
+        use crate::schema::googleuser::dsl as dsl_gu;
+
+        diesel::insert_into(dsl_gu::googleuser)
+            .values(crate::models::GoogleUser {
+                sub: self.sub.clone(),
+                access_token: self.bearer_access_token.secret().clone(),
+                expires_at: self.expires_at.clone(),
+                refresh_token: self.refresh_token.secret().clone(),
+                user_id: user.id,
+            })
+            .on_conflict(dsl_gu::sub)
+            .do_update()
+            .set((
+                dsl_gu::access_token.eq(self.bearer_access_token.secret()),
+                dsl_gu::expires_at.eq(&self.expires_at),
+                dsl_gu::refresh_token.eq(self.refresh_token.secret()),
+                dsl_gu::user_id.eq(&user.id),
+            ))
+            .execute(conn)
+            .await?;
+
+        Ok(())
     }
 
     pub async fn bearer_header(&mut self) -> reqwest::header::HeaderValue {

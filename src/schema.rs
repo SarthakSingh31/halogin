@@ -29,6 +29,7 @@ diesel::table! {
 diesel::table! {
     innerusersession (token) {
         token -> Text,
+        expires_at -> Timestamp,
         user_id -> Uuid,
     }
 }

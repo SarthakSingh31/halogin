@@ -198,6 +198,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cookie"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cd91cf61412820176e137621345ee43b3f4423e589e7ae4e50d601d93e35ef8"
+dependencies = [
+ "percent-encoding",
+ "time",
+ "version_check",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -535,18 +546,21 @@ name = "halogin"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "cookie",
  "diesel",
  "diesel-async",
  "dotenvy",
  "jsonwebtoken",
  "oauth2",
  "proc_macros",
+ "rand",
  "reqwest",
  "serde",
  "thiserror",
  "time",
  "tokio",
  "tower-http",
+ "tracing",
  "tracing-subscriber",
  "url",
  "uuid",
@@ -1868,7 +1882,19 @@ checksum = "c3523ab5a71916ccf420eebdf5521fcef02141234bbc0b8a49f2fdc4544364ef"
 dependencies = [
  "log",
  "pin-project-lite",
+ "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-attributes"
+version = "0.1.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34704c8d6ebcbc939824180af020566b01a7c01f80641264eba0999f6c2b6be7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

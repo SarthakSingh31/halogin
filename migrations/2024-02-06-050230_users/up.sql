@@ -13,6 +13,7 @@ CREATE TABLE InnerUserData (
 
 CREATE TABLE InnerUserSession (
     token TEXT PRIMARY KEY,
+    expires_at TIMESTAMP NOT NULL,
     user_id UUID NOT NULL,
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
 );
