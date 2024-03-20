@@ -92,7 +92,7 @@ async fn login(
         AuthEndpoint::Google => {
             let session =
                 google::GoogleSession::from_code(login_params.redirect_origin, login_params.code)
-                    .await;
+                    .await?;
 
             let mut conn = POOL.get().await?;
             let user =
@@ -137,20 +137,17 @@ async fn attach(
     Json(login_params): Json<LoginParams>,
 ) -> Result<(), Error> {
     match authentication {
-        auth::Authentication::Unauthenticated => Err(Error::Specific(
-            (
-                StatusCode::UNAUTHORIZED,
-                Html("Requests to attach need to be made from an authenticated session"),
-            )
-                .into_response(),
-        )),
+        auth::Authentication::Unauthenticated => Err(Error::Custom {
+            status_code: StatusCode::UNAUTHORIZED,
+            error: "Requests to attach need to be made from an authenticated session".into(),
+        }),
         auth::Authentication::Authenticated { user } => match endpoint {
             AuthEndpoint::Google => {
                 let session = google::GoogleSession::from_code(
                     login_params.redirect_origin,
                     login_params.code,
                 )
-                .await;
+                .await?;
 
                 let mut conn = POOL.get().await?;
 
@@ -165,8 +162,11 @@ async fn attach(
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("An error occured: {0:?}")]
-    Specific(axum::response::Response),
+    #[error("An error occured: {status_code:?} => {error}")]
+    Custom {
+        status_code: StatusCode,
+        error: String,
+    },
     #[error("Failed to get connection from pool: {0:?}")]
     PoolError(#[from] diesel_async::pooled_connection::deadpool::PoolError),
     #[error("Failed to user using the token from the DB: {0:?}")]
@@ -176,7 +176,7 @@ pub enum Error {
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         match self {
-            Error::Specific(err) => err,
+            Error::Custom { status_code, error } => (status_code, Html(error)).into_response(),
             Error::PoolError(_) | Error::QueryError(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("{self:?}"))).into_response()
             }

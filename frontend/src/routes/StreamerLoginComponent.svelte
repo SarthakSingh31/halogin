@@ -39,10 +39,13 @@
 </svelte:head>
 
 <div>
-    <button id="signinButton">Sign in with Google</button>
+    <button id="googleSigninButton">Sign in with Google</button>
+    <button id="twitchSigninButton">Connect with Twitch</button>
     <script>
-        $("#signinButton").click(function () {
-            // signInCallback defined in step 6.
+        $("#googleSigninButton").click(function () {
+            auth2.grantOfflineAccess().then(signInCallback);
+        });
+        $("#twitchSigninButton").click(function () {
             auth2.grantOfflineAccess().then(signInCallback);
         });
     </script>

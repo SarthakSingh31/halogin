@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 
+use axum::http::StatusCode;
 use diesel::{pg::Pg, ExpressionMethods};
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use oauth2::{
@@ -57,7 +58,7 @@ impl GoogleSession {
         "751704262503-61e56pavvl5d8l5fg6s62iejm8ft16ac.apps.googleusercontent.com";
     const CLIENT_SECRET: &'static str = "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";
 
-    pub async fn from_code(redirect_url: String, code: String) -> Self {
+    pub async fn from_code(redirect_url: String, code: String) -> Result<Self, Error> {
         println!("{}, {:?}", redirect_url, redirect_url);
         let client = GoogleClient::new(
             ClientId::new(Self::CLIENT_ID.into()),
@@ -65,24 +66,36 @@ impl GoogleSession {
             AUTH_URL.clone(),
             Some(TOKEN_URL.clone()),
         )
-        .set_redirect_uri(RedirectUrl::new(redirect_url).expect("Failed to parse redirect_url"));
+        .set_redirect_uri(RedirectUrl::new(redirect_url).map_err(|err| Error::Custom {
+            status_code: StatusCode::BAD_REQUEST,
+            error: format!("Failed to parse redirect url: {err:?}"),
+        })?);
 
         let auth = client
             .exchange_code(oauth2::AuthorizationCode::new(code))
             .request_async(oauth2::reqwest::async_http_client)
             .await
-            .expect("Failed to get auth from code");
+            .map_err(|err| Error::Custom {
+                status_code: StatusCode::BAD_REQUEST,
+                error: format!("Could not get the tokens from the provided code: {err:?}"),
+            })?;
 
         assert_eq!(*auth.token_type(), BasicTokenType::Bearer);
 
         let expires_at = auth
             .expires_in()
             .map(|duration| OffsetDateTime::now_utc() + duration)
-            .expect("No expiry time specified");
-        let refresh_token = auth
-            .refresh_token()
-            .map(|token| token.clone())
-            .expect("No refresh token specified");
+            .ok_or(Error::Custom {
+                status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                error: format!("Failed to get an expiry time for the given code"),
+            })?;
+        let refresh_token =
+            auth.refresh_token()
+                .map(|token| token.clone())
+                .ok_or(Error::Custom {
+                    status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                    error: format!("Could not get a refresh token for the given code"),
+                })?;
 
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.insecure_disable_signature_validation();
@@ -96,12 +109,12 @@ impl GoogleSession {
         )
         .expect("With verification disabled this is infallible");
 
-        GoogleSession {
+        Ok(GoogleSession {
             bearer_access_token: auth.access_token().clone(),
             expires_at: PrimitiveDateTime::new(expires_at.date(), expires_at.time()),
             refresh_token,
             sub: id_token_decoded.claims.sub,
-        }
+        })
     }
 
     pub fn sub(&self) -> &str {
