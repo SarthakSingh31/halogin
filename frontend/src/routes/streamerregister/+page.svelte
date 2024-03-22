@@ -13,7 +13,7 @@
         Work with the best sponsors using Halogin.
       </p>
       <GradientButton
-        href="/#"
+        href="/#" 
         outline
         color="purpleToPink"
         class="mr-2 flex items-center"
@@ -46,6 +46,7 @@
   .h-screen {
     height: 100vh;
   }
-
-  /* Add more styling as needed */
 </style>
+   
+
+  
