@@ -1,18 +1,18 @@
 use axum::{
     async_trait,
     extract::FromRequestParts,
-    http::{header::COOKIE, request::Parts, StatusCode},
+    http::{header::COOKIE, request::Parts},
 };
 use diesel::{pg::Pg, prelude::*};
 use diesel_async::{
     pooled_connection::deadpool::Pool, AsyncConnection, AsyncPgConnection, RunQueryDsl,
 };
-use oauth2::{basic::BasicTokenType, ClientId, ClientSecret, RefreshToken, TokenResponse};
+use oauth2::RefreshToken;
 use rand::Rng;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
-use crate::{google::GoogleClient, Error, SESSION_COOKIE_NAME};
+use crate::{google::GoogleSession, oauth::OAuthAccountHelper, Error, SESSION_COOKIE_NAME};
 
 #[derive(Clone, Copy, Insertable, Queryable)]
 #[diesel(table_name = crate::schema::inneruser)]
@@ -231,44 +231,18 @@ impl GoogleAccount {
     ) -> Result<reqwest::header::HeaderMap, Error> {
         let now = OffsetDateTime::now_utc();
         if (PrimitiveDateTime::new(now.date(), now.time()) + Self::BUFFER_TIME) > self.expires_at {
-            let client = GoogleClient::new(
-                ClientId::new(crate::google::CLIENT_ID.into()),
-                Some(ClientSecret::new(crate::google::CLIENT_SECRET.into())),
-                crate::google::AUTH_URL.clone(),
-                Some(crate::google::TOKEN_URL.clone()),
-            );
+            let session =
+                GoogleSession::renew(RefreshToken::new(self.refresh_token.clone())).await?;
 
-            let resp = client
-                .exchange_refresh_token(&RefreshToken::new(self.refresh_token.clone()))
-                .request_async(oauth2::reqwest::async_http_client)
-                .await
-                .map_err(|err| Error::Custom {
-                    status_code: StatusCode::INTERNAL_SERVER_ERROR,
-                    error: format!(
-                        "Failed to exchange refresh token for a new access token: {err:?}"
-                    ),
-                })?;
+            session
+                .insert_or_update_for_user(User { id: self.user_id }, conn)
+                .await?;
 
-            assert_eq!(*resp.token_type(), BasicTokenType::Bearer);
-
-            let expires_at = resp
-                .expires_in()
-                .map(|duration| OffsetDateTime::now_utc() + duration)
-                .ok_or(Error::Custom {
-                    status_code: StatusCode::INTERNAL_SERVER_ERROR,
-                    error: format!("Failed to get an expiry time for the given code"),
-                })?;
-            let refresh_token =
-                resp.refresh_token()
-                    .map(|token| token.clone())
-                    .ok_or(Error::Custom {
-                        status_code: StatusCode::INTERNAL_SERVER_ERROR,
-                        error: format!("Could not get a refresh token for the given code"),
-                    })?;
-
-            self.access_token = resp.access_token().secret().clone();
-            self.expires_at = PrimitiveDateTime::new(expires_at.date(), expires_at.time());
-            self.refresh_token = refresh_token.secret().clone();
+            self.access_token = session.access_token();
+            self.expires_at = session.expires_at();
+            self.refresh_token = session.refresh_token();
+            self.email = session.email();
+            // session.sub does not change so we don't need to update it
 
             diesel::update(crate::schema::googleaccount::dsl::googleaccount)
                 .set(self.clone())

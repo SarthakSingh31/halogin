@@ -3,6 +3,7 @@
 
 mod google;
 mod models;
+mod oauth;
 mod schema;
 
 use axum::{
@@ -14,7 +15,6 @@ use diesel_async::{
     pooled_connection::{deadpool::Pool, AsyncDieselConnectionManager},
     AsyncConnection, AsyncPgConnection,
 };
-use serde::Deserialize;
 use time::Duration;
 
 const SESSION_COOKIE_NAME: &'static str = "HALOGIN-SESSION";
@@ -63,13 +63,6 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-#[derive(Deserialize)]
-struct LoginParams {
-    redirect_origin: String,
-    code: String,
-    keep_logged_in: bool,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Request must be made from an authenticated session")]
@@ -85,6 +78,8 @@ pub enum Error {
     QueryError(#[from] diesel::result::Error),
     #[error("Failed to make a request: {0:?}")]
     ReqwestError(#[from] reqwest::Error),
+    #[error("Failed to parse url: {0:?}")]
+    ParseError(#[from] url::ParseError),
 }
 
 impl IntoResponse for Error {
@@ -94,7 +89,10 @@ impl IntoResponse for Error {
                 (StatusCode::UNAUTHORIZED, Html(format!("{self:?}"))).into_response()
             }
             Error::Custom { status_code, error } => (status_code, Html(error)).into_response(),
-            Error::PoolError(_) | Error::QueryError(_) | Error::ReqwestError(_) => {
+            Error::PoolError(_)
+            | Error::QueryError(_)
+            | Error::ReqwestError(_)
+            | Error::ParseError(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("{self:?}"))).into_response()
             }
         }
