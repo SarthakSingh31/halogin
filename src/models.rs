@@ -211,7 +211,7 @@ impl GoogleAccount {
         Ok(user)
     }
 
-    pub async fn get_for_user(
+    pub async fn list(
         user: User,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> Result<Vec<Self>, Error> {
@@ -285,4 +285,18 @@ impl GoogleAccount {
 
         Ok(map)
     }
+
+    pub fn meta(&self) -> GoogleAccountMeta {
+        GoogleAccountMeta {
+            sub: self.sub.clone(),
+            email: self.email.clone(),
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleAccountMeta {
+    pub sub: String,
+    pub email: String,
 }

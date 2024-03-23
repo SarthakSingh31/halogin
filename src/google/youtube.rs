@@ -5,7 +5,7 @@ use diesel_async::{pooled_connection::deadpool::Pool, AsyncPgConnection};
 use serde::Deserialize;
 
 use crate::{
-    models::{GoogleAccount, User},
+    models::{GoogleAccount, GoogleAccountMeta, User},
     Error,
 };
 
@@ -15,6 +15,7 @@ pub struct Channel {
     pub id: String,
     pub snippet: ChannelSnippet,
     pub statistics: ChannelStatistics,
+    pub account: GoogleAccountMeta,
 }
 
 impl Channel {
@@ -24,11 +25,19 @@ impl Channel {
     ) -> Result<Json<Vec<Self>>, Error> {
         let mut conn = pool.get().await?;
 
+        #[derive(serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        pub struct ResponseChannel {
+            pub id: String,
+            pub snippet: ChannelSnippet,
+            pub statistics: ChannelStatistics,
+        }
+
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Response {
             page_info: PageInfo,
-            items: Vec<Channel>,
+            items: Vec<ResponseChannel>,
         }
 
         #[derive(serde::Deserialize)]
@@ -38,7 +47,7 @@ impl Channel {
             results_per_page: usize,
         }
 
-        let accounts = GoogleAccount::get_for_user(user, &mut conn).await?;
+        let accounts = GoogleAccount::list(user, &mut conn).await?;
         let mut channels = Vec::default();
 
         let client = reqwest::Client::default();
@@ -51,7 +60,12 @@ impl Channel {
             let resp: Response = client.execute(req).await?.json().await?;
             assert!(resp.page_info.total_results <= resp.page_info.results_per_page);
 
-            channels.extend(resp.items);
+            channels.extend(resp.items.into_iter().map(|channel| Channel {
+                id: channel.id,
+                snippet: channel.snippet,
+                statistics: channel.statistics,
+                account: account.meta(),
+            }));
         }
 
         Ok(Json(channels))
