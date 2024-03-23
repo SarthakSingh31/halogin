@@ -1,103 +1,116 @@
-use axum::http::StatusCode;
+use axum::{routing, Router};
 use diesel::{pg::Pg, ExpressionMethods};
-use diesel_async::{AsyncConnection, RunQueryDsl};
-use oauth2::{
-    basic::{
-        BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
-        BasicTokenType,
-    }, revocation::StandardRevocableToken, AccessToken, AuthUrl, Client, ClientId, ClientSecret, ExtraTokenFields, RedirectUrl, StandardTokenResponse, TokenResponse, TokenUrl
+use diesel_async::{
+    pooled_connection::deadpool::Pool, AsyncConnection, AsyncPgConnection, RunQueryDsl,
 };
-use serde::{Serialize,Deserialize};
-use time::{OffsetDateTime, PrimitiveDateTime};
+use oauth2::{AccessToken, ExtraTokenFields, RefreshToken};
+use time::PrimitiveDateTime;
+use uuid::Uuid;
 
-use crate::{models::User, Error};
+use crate::{
+    models::{TwitchAccount,User},
+    oauth::OAuthAccountHelper,
+    Error,
+};
 
-use std::sync::LazyLock;
-
-static AUTH_URL: LazyLock<AuthUrl> = LazyLock::new(|| {
-    AuthUrl::new("https://id.twitch.tv/oauth2/authorize".into())
-        .expect("Failed to parse auth url")
-});
-static TOKEN_URL: LazyLock<TokenUrl> = LazyLock::new(|| {
-    TokenUrl::new("https://id.twitch.tv/oauth2/token".into())
-        .expect("Failed to parse token url")
-});
-
-type TwitchClient = Client<
-    BasicErrorResponse,
-    StandardTokenResponse<IdToken,BasicTokenType>,
-    BasicTokenType,
-    BasicTokenIntrospectionResponse,
-    StandardRevocableToken,
-    BasicRevocationErrorResponse,
->;
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IdToken {
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct TwitchIdToken {
     id_token: String,
 }
-impl ExtraTokenFields for IdToken {}
 
-#[derive(Debug)]
-pub struct TwitchSession {
-    bearer_access_token: AccessToken,
-    expires_at: PrimitiveDateTime,
+impl ExtraTokenFields for TwitchIdToken {}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct TwitchIdTokenDecoded {
+    id: String,
+
 }
 
+#[derive(Debug, Clone)]
+pub struct TwitchSession {
+    access_token: AccessToken,
+    expires_at: PrimitiveDateTime,
+    refresh_token: RefreshToken,
+    id: String,
+}
 
 impl TwitchSession {
-    const CLIENT_ID: &'static str = "65x8qdhtinpz5889thff2ae4o0nxrw";
-    const CLIENT_SECRET: &'static str = "shxqoc1j7dlzd0yj6z9ro9en5iaqdk";
-
-    pub async fn from_code(redirect_url: String, code: String) -> Result<Self, Error> {
-        let client = TwitchClient::new(
-            ClientId::new(Self::CLIENT_ID.into()),
-            Some(ClientSecret::new(Self::CLIENT_SECRET.into())),
-            AUTH_URL.clone(),
-            Some(TOKEN_URL.clone()),
-        )
-        .set_redirect_uri(RedirectUrl::new(redirect_url).map_err(|err| Error::Custom {
-            status_code: StatusCode::BAD_REQUEST,
-            error: format!("Failed to parse redirect url: {:?}", err),
-        })?);
-
-        let auth = client
-            .exchange_code(oauth2::AuthorizationCode::new(code))
-            .request_async(oauth2::reqwest::async_http_client)
-            .await
-            .map_err(|err| Error::Custom {
-                status_code: StatusCode::BAD_REQUEST,
-                error: format!("Could not get the tokens from the provided code: {:?}", err),
-            })?;
-
-        assert_eq!(*auth.token_type(), BasicTokenType::Bearer);
-
-        let expires_at = auth
-            .expires_in()
-            .map(|duration| OffsetDateTime::now_utc() + duration)
-            .ok_or(Error::Custom {
-                status_code: StatusCode::INTERNAL_SERVER_ERROR,
-                error: format!("Failed to get an expiry time for the given code"),
-            })?;
-
-        Ok(TwitchSession {
-            bearer_access_token: auth.access_token().clone(),
-            expires_at: PrimitiveDateTime::new(expires_at.date(), expires_at.time()),
-        })
+    pub fn access_token(&self) -> String {
+        self.access_token.secret().clone()
     }
 
-    pub async fn insert_or_update_for_user(
+    pub fn expires_at(&self) -> PrimitiveDateTime {
+        self.expires_at
+    }
+
+    pub fn refresh_token(&self) -> String {
+        self.refresh_token.secret().clone()
+    }
+
+    pub fn id(&self) -> String {
+        self.id.clone()
+    }
+
+}
+
+impl OAuthAccountHelper for TwitchSession {
+    const CLIENT_ID: &'static str = "65x8qdhtinpz5889thff2ae4o0nxrw";
+    const CLIENT_SECRET: &'static str = "shxqoc1j7dlzd0yj6z9ro9en5iaqdk";
+    const AUTH_URL: &'static str = "https://id.twitch.tv/oauth2/authorize";
+    const TOKEN_URL: &'static str = "https://id.twitch.tv/oauth2/token";
+
+    type ExtraFields = TwitchIdToken;
+
+    fn new(
+        access_token: AccessToken,
+        expires_at: PrimitiveDateTime,
+        refresh_token: RefreshToken,
+        extra_fields: &Self::ExtraFields,
+    ) -> Self {
+        let id_token_decoded = jsonwebtoken::decode::<TwitchIdTokenDecoded>(
+            &extra_fields.id_token,
+            &jsonwebtoken::DecodingKey::from_secret(&[]),
+            &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+        )
+        .expect("With verification disabled this is infallible");
+
+        TwitchSession {
+            access_token,
+            expires_at,
+            refresh_token,
+            id: id_token_decoded.claims.id,
+        }
+    }
+
+    async fn insert_or_update_for_user(
         &self,
         user: User,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> Result<(), Error> {
-        todo!()
+        use crate::schema::twitchaccount::dsl as dsl_ta;
 
-        // Ok(())
-    }
+        diesel::insert_into(dsl_ta::twitchaccount)
+            .values(TwitchAccount {
+                id: Uuid::new_v4().to_string(),
+                access_token: self.access_token.secret().clone(),
+                expires_at: self.expires_at.clone(),
+                refresh_token: self.refresh_token.secret().clone(),
+                user_id: user.id,
+            })
+            .on_conflict(dsl_ta::id)
+            .do_update()
+            .set((
+                dsl_ta::access_token.eq(self.access_token.secret()),
+                dsl_ta::expires_at.eq(&self.expires_at),
+                dsl_ta::refresh_token.eq(self.refresh_token.secret()),
+            ))
+            .execute(conn)
+            .await?;
 
-    pub async fn bearer_header(&mut self) -> reqwest::header::HeaderValue {
-       
-        todo!()
+        Ok(())
     }
+}
+pub fn router() -> Router<Pool<AsyncPgConnection>> {
+    Router::new()
+        .route("/login", routing::post(TwitchSession::login))
 }
