@@ -7,7 +7,7 @@ use oauth2::{AccessToken, ExtraTokenFields, RefreshToken};
 use time::PrimitiveDateTime;
 
 use crate::{
-    models::{TwitchAccount,User},
+    models::{TwitchAccount, User},
     oauth::OAuthAccountHelper,
     Error,
 };
@@ -22,7 +22,6 @@ impl ExtraTokenFields for TwitchIdToken {}
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TwitchIdTokenDecoded {
     id: String,
-
 }
 
 #[derive(Debug, Clone)]
@@ -45,11 +44,6 @@ impl TwitchSession {
     pub fn refresh_token(&self) -> String {
         self.refresh_token.secret().clone()
     }
-
-    pub fn id(&self) -> String {
-        self.id.clone()
-    }
-
 }
 
 impl OAuthAccountHelper for TwitchSession {
@@ -70,11 +64,11 @@ impl OAuthAccountHelper for TwitchSession {
         validation.insecure_disable_signature_validation();
         validation.validate_aud = false;
         validation.validate_exp = false;
-        
+
         let id_token_decoded = jsonwebtoken::decode::<TwitchIdTokenDecoded>(
             &extra_fields.id_token,
             &jsonwebtoken::DecodingKey::from_secret(&[]),
-            &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+            &validation,
         )
         .expect("With verification disabled this is infallible");
 
@@ -107,6 +101,7 @@ impl OAuthAccountHelper for TwitchSession {
                 dsl_ta::access_token.eq(self.access_token.secret()),
                 dsl_ta::expires_at.eq(&self.expires_at),
                 dsl_ta::refresh_token.eq(self.refresh_token.secret()),
+                dsl_ta::user_id.eq(user.id),
             ))
             .execute(conn)
             .await?;
@@ -115,6 +110,5 @@ impl OAuthAccountHelper for TwitchSession {
     }
 }
 pub fn router() -> Router<Pool<AsyncPgConnection>> {
-    Router::new()
-        .route("/login", routing::post(TwitchSession::login))
+    Router::new().route("/login", routing::post(TwitchSession::login))
 }

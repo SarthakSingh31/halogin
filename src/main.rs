@@ -50,8 +50,8 @@ async fn main() {
 
     let app = Router::new()
         .nest("/api/v1/google", google::router())
+        .nest("/api/v1/twitch", twitch::router())
         .nest_service("/", tower_http::services::ServeDir::new("frontend/build"))
-        .nest("/api/v1/twitch", twitch::router()) 
         .with_state({
             let config = AsyncDieselConnectionManager::new(db_url);
 
