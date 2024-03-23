@@ -66,6 +66,11 @@ impl OAuthAccountHelper for TwitchSession {
         refresh_token: RefreshToken,
         extra_fields: &Self::ExtraFields,
     ) -> Self {
+        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+        validation.insecure_disable_signature_validation();
+        validation.validate_aud = false;
+        validation.validate_exp = false;
+        
         let id_token_decoded = jsonwebtoken::decode::<TwitchIdTokenDecoded>(
             &extra_fields.id_token,
             &jsonwebtoken::DecodingKey::from_secret(&[]),
