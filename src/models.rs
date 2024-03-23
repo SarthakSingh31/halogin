@@ -14,6 +14,8 @@ use uuid::Uuid;
 
 use crate::{google::GoogleSession, oauth::OAuthAccountHelper, Error, SESSION_COOKIE_NAME};
 
+const BUFFER_TIME: Duration = Duration::seconds(1);
+
 #[derive(Clone, Copy, Insertable, Queryable)]
 #[diesel(table_name = crate::schema::inneruser)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
@@ -181,6 +183,20 @@ pub struct TwitchAccount {
     pub user_id: Uuid,
 }
 
+impl TwitchAccount {
+    pub fn meta(&self) -> TwitchAccountMeta {
+        TwitchAccountMeta {
+            id: self.id.clone(),
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwitchAccountMeta {
+    pub id: String,
+}
+
 #[derive(Clone, Insertable, Queryable, AsChangeset)]
 #[diesel(table_name = crate::schema::googleaccount)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
@@ -194,8 +210,6 @@ pub struct GoogleAccount {
 }
 
 impl GoogleAccount {
-    const BUFFER_TIME: Duration = Duration::seconds(1);
-
     pub async fn from_sub(
         sub: &str,
         conn: &mut impl AsyncConnection<Backend = Pg>,
@@ -225,41 +239,6 @@ impl GoogleAccount {
         Ok(accounts)
     }
 
-    pub async fn bearer_header(
-        &mut self,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<reqwest::header::HeaderMap, Error> {
-        let now = OffsetDateTime::now_utc();
-        if (PrimitiveDateTime::new(now.date(), now.time()) + Self::BUFFER_TIME) > self.expires_at {
-            let session =
-                GoogleSession::renew(RefreshToken::new(self.refresh_token.clone())).await?;
-
-            session
-                .insert_or_update_for_user(User { id: self.user_id }, conn)
-                .await?;
-
-            self.access_token = session.access_token();
-            self.expires_at = session.expires_at();
-            self.refresh_token = session.refresh_token();
-            self.email = session.email();
-            // session.sub does not change so we don't need to update it
-
-            diesel::update(crate::schema::googleaccount::dsl::googleaccount)
-                .set(self.clone())
-                .execute(conn)
-                .await?;
-        }
-
-        let mut map = reqwest::header::HeaderMap::new();
-        map.insert(
-            reqwest::header::AUTHORIZATION,
-            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.access_token))
-                .expect("Failed to make the bearer token header value"),
-        );
-
-        Ok(map)
-    }
-
     pub fn meta(&self) -> GoogleAccountMeta {
         GoogleAccountMeta {
             sub: self.sub.clone(),
@@ -273,4 +252,65 @@ impl GoogleAccount {
 pub struct GoogleAccountMeta {
     pub sub: String,
     pub email: String,
+}
+
+pub trait AuthenticationHeader {
+    type Session: OAuthAccountHelper;
+
+    fn access_token(&self) -> &str;
+    fn expires_at(&self) -> PrimitiveDateTime;
+    fn refresh_token(&self) -> String;
+    fn user(&self) -> User;
+    fn update(&mut self, session: Self::Session);
+
+    async fn authentication_header(
+        &mut self,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<reqwest::header::HeaderMap, Error> {
+        let now = OffsetDateTime::now_utc();
+        if (PrimitiveDateTime::new(now.date(), now.time()) + BUFFER_TIME) > self.expires_at() {
+            let session = Self::Session::renew(RefreshToken::new(self.refresh_token())).await?;
+
+            session.insert_or_update_for_user(self.user(), conn).await?;
+
+            self.update(session);
+        }
+
+        let mut map = reqwest::header::HeaderMap::new();
+        map.insert(
+            reqwest::header::AUTHORIZATION,
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.access_token()))
+                .expect("Failed to make the bearer token header value"),
+        );
+
+        Ok(map)
+    }
+}
+
+impl AuthenticationHeader for GoogleAccount {
+    type Session = GoogleSession;
+
+    fn access_token(&self) -> &str {
+        &self.access_token
+    }
+
+    fn expires_at(&self) -> PrimitiveDateTime {
+        self.expires_at
+    }
+
+    fn refresh_token(&self) -> String {
+        self.refresh_token.clone()
+    }
+
+    fn user(&self) -> User {
+        User { id: self.user_id }
+    }
+
+    fn update(&mut self, session: Self::Session) {
+        self.access_token = session.access_token();
+        self.expires_at = session.expires_at();
+        self.refresh_token = session.refresh_token();
+        self.email = session.email();
+        // session.sub does not change so we don't need to update it
+    }
 }
