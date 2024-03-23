@@ -13,7 +13,7 @@ use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
 use crate::{google::GoogleSession, oauth::OAuthAccountHelper, Error, SESSION_COOKIE_NAME};
-
+use crate::{twitch::TwitchSession};
 const BUFFER_TIME: Duration = Duration::seconds(1);
 
 #[derive(Clone, Copy, Insertable, Queryable)]
@@ -314,3 +314,32 @@ impl AuthenticationHeader for GoogleAccount {
         // session.sub does not change so we don't need to update it
     }
 }
+
+impl AuthenticationHeader for TwitchAccount {
+    type Session = TwitchSession;
+
+    fn access_token(&self) -> &str {
+        &self.access_token
+    }
+
+    fn expires_at(&self) -> PrimitiveDateTime {
+        self.expires_at
+    }
+
+    fn refresh_token(&self) -> String {
+        self.refresh_token.clone()
+    }
+
+    fn user(&self) -> User {
+        User { id: self.user_id }
+    }
+
+    fn update(&mut self, session: Self::Session) {
+        self.access_token = session.access_token();
+        self.expires_at = session.expires_at();
+        self.refresh_token = session.refresh_token();
+        self.id = session.id();
+        
+    }
+}
+

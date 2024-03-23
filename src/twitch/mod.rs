@@ -5,7 +5,6 @@ use diesel_async::{
 };
 use oauth2::{AccessToken, ExtraTokenFields, RefreshToken};
 use time::PrimitiveDateTime;
-use uuid::Uuid;
 
 use crate::{
     models::{TwitchAccount,User},
@@ -91,7 +90,7 @@ impl OAuthAccountHelper for TwitchSession {
 
         diesel::insert_into(dsl_ta::twitchaccount)
             .values(TwitchAccount {
-                id: Uuid::new_v4().to_string(),
+                id: self.id.clone(),
                 access_token: self.access_token.secret().clone(),
                 expires_at: self.expires_at.clone(),
                 refresh_token: self.refresh_token.secret().clone(),
