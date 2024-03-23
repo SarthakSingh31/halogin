@@ -17,7 +17,7 @@
 
     function signInCallback(authResult: { code: string }) {
         if (authResult["code"]) {
-            fetch("/api/v1/login/google", {
+            fetch("/api/v1/google/login", {
                 method: "POST",
                 headers: {
                     "X-Requested-With": "XMLHttpRequest",

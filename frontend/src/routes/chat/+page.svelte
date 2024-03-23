@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
     import { onMount, onDestroy } from "svelte";
 
     let users = [
@@ -13,19 +13,19 @@
         { text: "Hi there!", sender: users[0].id, timestamp: "10:00 AM" },
         { text: "Hello!", sender: users[0].id, timestamp: "10:01 AM" },
         { text: "How are you?", sender: users[1].id, timestamp: "10:02 AM" },
-        { text: "I'm good, thank you!", sender: users[0].id, timestamp: "10:03 AM" },
+        {
+            text: "I'm good, thank you!",
+            sender: users[0].id,
+            timestamp: "10:03 AM",
+        },
     ];
 
     let newMessage = "";
-
-    /**
-     * @type {WebSocket}
-     */
-    let ws;
+    let ws: WebSocket | null = null;
 
     onMount(() => {
         ws = new WebSocket("ws://localhost:8080"); // Have to replace the  URL with actual server address.
-                                                   // currently getting 500 internal error..
+        // currently getting 500 internal error..
         ws.onopen = () => {
             console.log("WebSocket connected");
         };
@@ -37,13 +37,18 @@
     });
 
     onDestroy(() => {
-        ws.close();
+        ws?.close();
     });
 
     function sendMessage() {
         if (newMessage.trim() !== "") {
             const now = new Date();
-            const hours = now.getHours() > 12 ? (now.getHours() - 12).toString() : (now.getHours() === 0 ? "12" : now.getHours().toString());
+            const hours =
+                now.getHours() > 12
+                    ? (now.getHours() - 12).toString()
+                    : now.getHours() === 0
+                      ? "12"
+                      : now.getHours().toString();
             const minutes = now.getMinutes().toString().padStart(2, "0");
             const period = now.getHours() >= 12 ? "PM" : "AM";
             const time = `${hours}:${minutes} ${period}`;
@@ -54,7 +59,7 @@
                 timestamp: time,
             };
 
-            ws.send(JSON.stringify(message));
+            ws?.send(JSON.stringify(message));
 
             messages = [...messages, message];
 
@@ -93,7 +98,12 @@
 
         <div class="chat-messages">
             {#each messages as message}
-                <div class="chat-message {message.sender === currentChatPartner.id ? 'my-message' : 'other-message'}">
+                <div
+                    class="chat-message {message.sender ===
+                    currentChatPartner.id
+                        ? 'my-message'
+                        : 'other-message'}"
+                >
                     <p>{message.text}</p>
                     <span class="timestamp">{message.timestamp}</span>
                 </div>
@@ -101,12 +111,15 @@
         </div>
 
         <div class="input-container">
-            <input type="text" bind:value={newMessage} placeholder="Type a message...">
+            <input
+                type="text"
+                bind:value={newMessage}
+                placeholder="Type a message..."
+            />
             <button on:click={sendMessage}>Send</button>
         </div>
     </div>
 </div>
-
 
 <style>
     .chat-container {

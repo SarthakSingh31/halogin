@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
-use axum::Json;
-use diesel::pg::Pg;
-use diesel_async::AsyncConnection;
+use axum::{extract::State, Json};
+use diesel_async::{pooled_connection::deadpool::Pool, AsyncPgConnection};
 use serde::Deserialize;
 
 use crate::{
     models::{GoogleAccount, User},
-    Error, POOL,
+    Error,
 };
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -19,17 +18,12 @@ pub struct Channel {
 }
 
 impl Channel {
-    pub async fn get_for_user_handler(user: User) -> Result<Json<Vec<Self>>, Error> {
-        let mut conn = POOL.get().await?;
-        Self::get_for_user(user, &mut conn)
-            .await
-            .map(|channels| Json(channels))
-    }
-
-    pub async fn get_for_user(
+    pub async fn list(
         user: User,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<Vec<Self>, Error> {
+        State(pool): State<Pool<AsyncPgConnection>>,
+    ) -> Result<Json<Vec<Self>>, Error> {
+        let mut conn = pool.get().await?;
+
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Response {
@@ -44,7 +38,7 @@ impl Channel {
             results_per_page: usize,
         }
 
-        let accounts = GoogleAccount::get_for_user(user, conn).await?;
+        let accounts = GoogleAccount::get_for_user(user, &mut conn).await?;
         let mut channels = Vec::default();
 
         let client = reqwest::Client::default();
@@ -52,7 +46,7 @@ impl Channel {
         for mut account in accounts {
             let req = client
                 .get("https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true&maxResults=50")
-                .headers(account.bearer_header(conn).await?)
+                .headers(account.bearer_header(&mut conn).await?)
                 .build()?;
             let resp: Response = client.execute(req).await?.json().await?;
             assert!(resp.page_info.total_results <= resp.page_info.results_per_page);
@@ -60,7 +54,7 @@ impl Channel {
             channels.extend(resp.items);
         }
 
-        Ok(channels)
+        Ok(Json(channels))
     }
 }
 

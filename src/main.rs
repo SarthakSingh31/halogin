@@ -5,44 +5,34 @@ mod google;
 mod models;
 mod schema;
 
-use std::sync::LazyLock;
-
 use axum::{
-    extract::Path,
-    http::{header::SET_COOKIE, HeaderName, StatusCode},
-    response::{Html, IntoResponse, Redirect},
-    routing, Json, Router,
+    http::StatusCode,
+    response::{Html, IntoResponse},
+    Router,
 };
-use cookie::Cookie;
 use diesel_async::{
     pooled_connection::{deadpool::Pool, AsyncDieselConnectionManager},
-    AsyncPgConnection,
+    AsyncConnection, AsyncPgConnection,
 };
-use models::{User, UserData};
 use serde::Deserialize;
-use time::{Duration, OffsetDateTime, PrimitiveDateTime};
+use time::Duration;
 
 const SESSION_COOKIE_NAME: &'static str = "HALOGIN-SESSION";
 const SESSION_COOKIE_DURATION: Duration = Duration::days(90);
 
 const PRUNE_INTERVAL: std::time::Duration = std::time::Duration::from_days(1);
 
-static POOL: LazyLock<Pool<AsyncPgConnection>> = LazyLock::new(|| {
-    let config = AsyncDieselConnectionManager::new(
-        dotenvy::var("DATABASE_URL").expect("Failed to get DATABASE_URL"),
-    );
-    Pool::builder(config)
-        .build()
-        .expect("Failed to build the pool")
-});
-
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    let db_url = &*dotenvy::var("DATABASE_URL")
+        .expect("Failed to get DATABASE_URL")
+        .leak();
+
     tokio::spawn(async move {
         loop {
-            match POOL.get().await {
+            match AsyncPgConnection::establish(db_url).await {
                 Ok(mut conn) => {
                     if let Err(err) = models::UserSession::prune_expired(&mut conn).await {
                         tracing::warn!("{err:?}");
@@ -58,13 +48,15 @@ async fn main() {
     });
 
     let app = Router::new()
-        .route("/api/v1/login/:endpoint", routing::post(login))
-        .route("/api/v1/attach/:endpoint", routing::post(attach))
-        .route(
-            "/api/v1/google/channels",
-            routing::get(google::Channel::get_for_user_handler),
-        )
-        .nest_service("/", tower_http::services::ServeDir::new("frontend/build"));
+        .nest("/api/v1/google", google::router())
+        .nest_service("/", tower_http::services::ServeDir::new("frontend/build"))
+        .with_state({
+            let config = AsyncDieselConnectionManager::new(db_url);
+
+            Pool::<AsyncPgConnection>::builder(config)
+                .build()
+                .expect("Failed to build the pool")
+        });
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -72,97 +64,10 @@ async fn main() {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum AuthEndpoint {
-    Google,
-    Twitch,
-}
-
-#[derive(Deserialize)]
 struct LoginParams {
     redirect_origin: String,
     code: String,
     keep_logged_in: bool,
-}
-
-async fn login(
-    Path(endpoint): Path<AuthEndpoint>,
-    Json(login_params): Json<LoginParams>,
-) -> Result<([(HeaderName, String); 1], Redirect), Error> {
-    let now = OffsetDateTime::now_utc();
-    let expires_at = PrimitiveDateTime::new(now.date(), now.time()) + SESSION_COOKIE_DURATION;
-
-    match endpoint {
-        AuthEndpoint::Google => {
-            let session =
-                google::GoogleSession::from_code(login_params.redirect_origin, login_params.code)
-                    .await?;
-
-            let mut conn = POOL.get().await?;
-            let user = if let Some(google_user) =
-                models::GoogleAccount::from_sub(session.sub(), &mut conn).await?
-            {
-                User {
-                    id: google_user.user_id,
-                }
-            } else {
-                User::new(&mut conn).await?
-            };
-            let redirect = if UserData::from_user(user, &mut conn).await?.is_some() {
-                Redirect::temporary("home")
-            } else {
-                Redirect::temporary("build-profile")
-            };
-
-            session.insert_or_update_for_user(user, &mut conn).await?;
-
-            let session = models::UserSession::new_for_user(user, expires_at, &mut conn).await?;
-
-            let mut cookie = Cookie::new(SESSION_COOKIE_NAME, session.token);
-
-            cookie.set_secure(true);
-            cookie.set_http_only(true);
-            if login_params.keep_logged_in {
-                cookie.set_expires(OffsetDateTime::new_utc(
-                    expires_at.date(),
-                    expires_at.time(),
-                ));
-            }
-            cookie.set_path("/");
-            cookie.set_secure(true);
-
-            // Redirect here to the profile setup page. set cookie
-            Ok(([(SET_COOKIE, cookie.encoded().to_string())], redirect))
-        }
-        AuthEndpoint::Twitch => todo!(),
-    }
-}
-
-#[derive(Deserialize)]
-struct AttachParams {
-    redirect_origin: String,
-    code: String,
-}
-
-async fn attach(
-    user: User,
-    Path(endpoint): Path<AuthEndpoint>,
-    Json(login_params): Json<AttachParams>,
-) -> Result<(), Error> {
-    match endpoint {
-        AuthEndpoint::Google => {
-            let session =
-                google::GoogleSession::from_code(login_params.redirect_origin, login_params.code)
-                    .await?;
-
-            let mut conn = POOL.get().await?;
-
-            session.insert_or_update_for_user(user, &mut conn).await?;
-
-            Ok(())
-        }
-        AuthEndpoint::Twitch => todo!(),
-    }
 }
 
 #[derive(Debug, thiserror::Error)]

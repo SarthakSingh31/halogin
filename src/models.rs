@@ -4,7 +4,9 @@ use axum::{
     http::{header::COOKIE, request::Parts, StatusCode},
 };
 use diesel::{pg::Pg, prelude::*};
-use diesel_async::{AsyncConnection, RunQueryDsl};
+use diesel_async::{
+    pooled_connection::deadpool::Pool, AsyncConnection, AsyncPgConnection, RunQueryDsl,
+};
 use oauth2::{basic::BasicTokenType, ClientId, ClientSecret, RefreshToken, TokenResponse};
 use rand::Rng;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
@@ -35,13 +37,13 @@ impl User {
 }
 
 #[async_trait]
-impl<S> FromRequestParts<S> for User
-where
-    S: Send + Sync,
-{
+impl FromRequestParts<Pool<AsyncPgConnection>> for User {
     type Rejection = Error;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        pool: &Pool<AsyncPgConnection>,
+    ) -> Result<Self, Self::Rejection> {
         if let Some(cookies) = parts.headers.get(COOKIE) {
             let mut parts = cookies.as_bytes().split(|c| *c == b';');
             while let Some(part) = parts.next() {
@@ -50,7 +52,7 @@ where
 
                     if let Some((name, value)) = part.split_once("=") {
                         if name == SESSION_COOKIE_NAME {
-                            let mut conn = crate::POOL.get().await?;
+                            let mut conn = pool.get().await?;
 
                             // We ignore the session cookie if we cannot find a session associated with it
                             if let Some(user) =
@@ -139,9 +141,13 @@ impl UserSession {
     ) -> Result<Option<User>, Error> {
         use crate::schema::innerusersession::dsl as dsl_ius;
 
+        let now = OffsetDateTime::now_utc();
+        let now = PrimitiveDateTime::new(now.date(), now.time());
+
         let user = dsl_ius::innerusersession
             .select((dsl_ius::user_id,))
             .filter(dsl_ius::token.eq(token))
+            .filter(dsl_ius::expires_at.gt(now))
             .first(conn)
             .await
             .optional()?;

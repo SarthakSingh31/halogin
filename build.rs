@@ -9,11 +9,13 @@ fn main() -> Result<(), io::Error> {
         .arg("install")
         .current_dir("./frontend")
         .output()?;
-    Command::new("npm")
+    let output = Command::new("npm")
         .arg("run")
         .arg("build")
         .current_dir("./frontend")
         .output()?;
+
+    assert!(output.status.success());
 
     Ok(())
 }

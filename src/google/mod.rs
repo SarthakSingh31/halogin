@@ -2,9 +2,16 @@ mod youtube;
 
 use std::sync::LazyLock;
 
-use axum::http::StatusCode;
+use axum::{
+    extract::State,
+    http::{header::SET_COOKIE, HeaderName, StatusCode},
+    routing, Json, Router,
+};
+use axum_extra::{either::Either, extract::cookie::Cookie};
 use diesel::{pg::Pg, ExpressionMethods};
-use diesel_async::{AsyncConnection, RunQueryDsl};
+use diesel_async::{
+    pooled_connection::deadpool::Pool, AsyncConnection, AsyncPgConnection, RunQueryDsl,
+};
 use oauth2::{
     basic::{
         BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
@@ -16,9 +23,10 @@ use oauth2::{
 };
 use time::{OffsetDateTime, PrimitiveDateTime};
 
-use crate::{models::User, Error};
-
-pub use youtube::Channel;
+use crate::{
+    models::{GoogleAccount, User, UserSession},
+    Error,
+};
 
 pub const CLIENT_ID: &'static str =
     "751704262503-61e56pavvl5d8l5fg6s62iejm8ft16ac.apps.googleusercontent.com";
@@ -123,10 +131,6 @@ impl GoogleSession {
         })
     }
 
-    pub fn sub(&self) -> &str {
-        &self.sub
-    }
-
     pub async fn insert_or_update_for_user(
         &self,
         user: User,
@@ -135,7 +139,7 @@ impl GoogleSession {
         use crate::schema::googleaccount::dsl as dsl_ga;
 
         diesel::insert_into(dsl_ga::googleaccount)
-            .values(crate::models::GoogleAccount {
+            .values(GoogleAccount {
                 sub: self.sub.clone(),
                 email: self.email.clone(),
                 access_token: self.bearer_access_token.secret().clone(),
@@ -157,4 +161,52 @@ impl GoogleSession {
 
         Ok(())
     }
+
+    async fn login(
+        user: Option<User>,
+        State(pool): State<Pool<AsyncPgConnection>>,
+        Json(login_params): Json<crate::LoginParams>,
+    ) -> Result<Either<(), [(HeaderName, String); 1]>, Error> {
+        let session =
+            GoogleSession::from_code(login_params.redirect_origin, login_params.code).await?;
+        let mut conn = pool.get().await?;
+
+        let resp = if let Some(user) = user {
+            session.insert_or_update_for_user(user, &mut conn).await?;
+
+            Either::E1(())
+        } else {
+            let now = OffsetDateTime::now_utc();
+            let expires_at =
+                PrimitiveDateTime::new(now.date(), now.time()) + crate::SESSION_COOKIE_DURATION;
+
+            let user = User::new(&mut conn).await?;
+            session.insert_or_update_for_user(user, &mut conn).await?;
+
+            let session = UserSession::new_for_user(user, expires_at, &mut conn).await?;
+
+            let mut cookie = Cookie::new(crate::SESSION_COOKIE_NAME, session.token);
+
+            cookie.set_secure(true);
+            cookie.set_http_only(true);
+            if login_params.keep_logged_in {
+                cookie.set_expires(OffsetDateTime::new_utc(
+                    expires_at.date(),
+                    expires_at.time(),
+                ));
+            }
+            cookie.set_path("/");
+            cookie.set_secure(true);
+
+            Either::E2([(SET_COOKIE, cookie.encoded().to_string())])
+        };
+
+        Ok(resp)
+    }
+}
+
+pub fn router() -> Router<Pool<AsyncPgConnection>> {
+    Router::new()
+        .route("/login", routing::post(GoogleSession::login))
+        .route("/channel/list", routing::get(youtube::Channel::list))
 }
