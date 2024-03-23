@@ -56,7 +56,7 @@
                     client_id:
                         "751704262503-61e56pavvl5d8l5fg6s62iejm8ft16ac.apps.googleusercontent.com",
                     // Scopes to request in addition to 'profile' and 'email'
-                    scope: "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.channel-memberships.creator",
+                    scope: "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.channel-memberships.creator https://www.googleapis.com/auth/yt-analytics.readonly",
                     plugin_name: "halogin",
                 });
             });

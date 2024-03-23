@@ -1,0 +1,194 @@
+use axum::{
+    extract::State,
+    http::{header::SET_COOKIE, HeaderName, StatusCode},
+    Json,
+};
+use axum_extra::{either::Either, extract::cookie::Cookie};
+use diesel::pg::Pg;
+use diesel_async::{pooled_connection::deadpool::Pool, AsyncConnection, AsyncPgConnection};
+use oauth2::{
+    basic::{
+        BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
+        BasicTokenType,
+    },
+    AccessToken, AuthUrl, Client, ClientId, ClientSecret, ExtraTokenFields, RedirectUrl,
+    RefreshToken, StandardRevocableToken, StandardTokenResponse, TokenResponse, TokenUrl,
+};
+use time::{OffsetDateTime, PrimitiveDateTime};
+
+use crate::{
+    models::{User, UserSession},
+    Error,
+};
+
+#[derive(serde::Deserialize)]
+pub struct LoginParams {
+    redirect_origin: String,
+    code: String,
+    keep_logged_in: bool,
+}
+
+pub trait OAuthAccountHelper: Sized {
+    const CLIENT_ID: &'static str;
+    const CLIENT_SECRET: &'static str;
+    const AUTH_URL: &'static str;
+    const TOKEN_URL: &'static str;
+
+    type ExtraFields: ExtraTokenFields;
+
+    fn new(
+        access_token: AccessToken,
+        expires_at: PrimitiveDateTime,
+        refresh_token: RefreshToken,
+        extra_fields: &Self::ExtraFields,
+    ) -> Self;
+
+    async fn insert_or_update_for_user(
+        &self,
+        user: User,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<(), Error>;
+
+    async fn from_code(redirect_url: String, code: String) -> Result<Self, Error> {
+        let client = Client::<
+            BasicErrorResponse,
+            StandardTokenResponse<Self::ExtraFields, BasicTokenType>,
+            BasicTokenType,
+            BasicTokenIntrospectionResponse,
+            StandardRevocableToken,
+            BasicRevocationErrorResponse,
+        >::new(
+            ClientId::new(Self::CLIENT_ID.into()),
+            Some(ClientSecret::new(Self::CLIENT_SECRET.into())),
+            AuthUrl::new(Self::AUTH_URL.into())?,
+            Some(TokenUrl::new(Self::TOKEN_URL.into())?),
+        )
+        .set_redirect_uri(RedirectUrl::new(redirect_url).map_err(|err| Error::Custom {
+            status_code: StatusCode::BAD_REQUEST,
+            error: format!("Failed to parse redirect url: {err:?}"),
+        })?);
+
+        let auth = client
+            .exchange_code(oauth2::AuthorizationCode::new(code))
+            .request_async(oauth2::reqwest::async_http_client)
+            .await
+            .map_err(|err| Error::Custom {
+                status_code: StatusCode::BAD_REQUEST,
+                error: format!("Could not get the tokens from the provided code: {err:?}"),
+            })?;
+
+        assert_eq!(*auth.token_type(), BasicTokenType::Bearer);
+
+        let expires_at = auth
+            .expires_in()
+            .map(|duration| OffsetDateTime::now_utc() + duration)
+            .ok_or(Error::Custom {
+                status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                error: format!("Failed to get an expiry time for the given code"),
+            })?;
+        let refresh_token =
+            auth.refresh_token()
+                .map(|token| token.clone())
+                .ok_or(Error::Custom {
+                    status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                    error: format!("Could not get a refresh token for the given code"),
+                })?;
+
+        Ok(Self::new(
+            auth.access_token().clone(),
+            PrimitiveDateTime::new(expires_at.date(), expires_at.time()),
+            refresh_token,
+            auth.extra_fields(),
+        ))
+    }
+
+    async fn renew(refresh_token: RefreshToken) -> Result<Self, Error> {
+        let client = Client::<
+            BasicErrorResponse,
+            StandardTokenResponse<Self::ExtraFields, BasicTokenType>,
+            BasicTokenType,
+            BasicTokenIntrospectionResponse,
+            StandardRevocableToken,
+            BasicRevocationErrorResponse,
+        >::new(
+            ClientId::new(Self::CLIENT_ID.into()),
+            Some(ClientSecret::new(Self::CLIENT_SECRET.into())),
+            AuthUrl::new(Self::AUTH_URL.into())?,
+            Some(TokenUrl::new(Self::TOKEN_URL.into())?),
+        );
+
+        let resp = client
+            .exchange_refresh_token(&refresh_token)
+            .request_async(oauth2::reqwest::async_http_client)
+            .await
+            .map_err(|err| Error::Custom {
+                status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                error: format!("Failed to exchange refresh token for a new access token: {err:?}"),
+            })?;
+
+        assert_eq!(*resp.token_type(), BasicTokenType::Bearer);
+
+        let expires_at = resp
+            .expires_in()
+            .map(|duration| OffsetDateTime::now_utc() + duration)
+            .ok_or(Error::Custom {
+                status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                error: format!("Failed to get an expiry time for the given code"),
+            })?;
+        let refresh_token =
+            resp.refresh_token()
+                .map(|token| token.clone())
+                .ok_or(Error::Custom {
+                    status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                    error: format!("Could not get a refresh token for the given code"),
+                })?;
+
+        Ok(Self::new(
+            resp.access_token().clone(),
+            PrimitiveDateTime::new(expires_at.date(), expires_at.time()),
+            refresh_token,
+            resp.extra_fields(),
+        ))
+    }
+
+    async fn login(
+        user: Option<User>,
+        State(pool): State<Pool<AsyncPgConnection>>,
+        Json(login_params): Json<LoginParams>,
+    ) -> Result<Either<(), [(HeaderName, String); 1]>, Error> {
+        let session = Self::from_code(login_params.redirect_origin, login_params.code).await?;
+        let mut conn = pool.get().await?;
+
+        let resp = if let Some(user) = user {
+            session.insert_or_update_for_user(user, &mut conn).await?;
+
+            Either::E1(())
+        } else {
+            let now = OffsetDateTime::now_utc();
+            let expires_at =
+                PrimitiveDateTime::new(now.date(), now.time()) + crate::SESSION_COOKIE_DURATION;
+
+            let user = User::new(&mut conn).await?;
+            session.insert_or_update_for_user(user, &mut conn).await?;
+
+            let session = UserSession::new_for_user(user, expires_at, &mut conn).await?;
+
+            let mut cookie = Cookie::new(crate::SESSION_COOKIE_NAME, session.token);
+
+            cookie.set_secure(true);
+            cookie.set_http_only(true);
+            if login_params.keep_logged_in {
+                cookie.set_expires(OffsetDateTime::new_utc(
+                    expires_at.date(),
+                    expires_at.time(),
+                ));
+            }
+            cookie.set_path("/");
+            cookie.set_secure(true);
+
+            Either::E2([(SET_COOKIE, cookie.encoded().to_string())])
+        };
+
+        Ok(resp)
+    }
+}
