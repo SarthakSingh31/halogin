@@ -1,3 +1,5 @@
+mod youtube;
+
 use std::sync::LazyLock;
 
 use axum::http::StatusCode;
@@ -16,15 +18,21 @@ use time::{OffsetDateTime, PrimitiveDateTime};
 
 use crate::{models::User, Error};
 
-static AUTH_URL: LazyLock<AuthUrl> = LazyLock::new(|| {
+pub use youtube::Channel;
+
+pub const CLIENT_ID: &'static str =
+    "751704262503-61e56pavvl5d8l5fg6s62iejm8ft16ac.apps.googleusercontent.com";
+pub const CLIENT_SECRET: &'static str = "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";
+
+pub static AUTH_URL: LazyLock<AuthUrl> = LazyLock::new(|| {
     AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".into())
         .expect("Failed to parse account url")
 });
-static TOKEN_URL: LazyLock<TokenUrl> = LazyLock::new(|| {
+pub static TOKEN_URL: LazyLock<TokenUrl> = LazyLock::new(|| {
     TokenUrl::new("https://oauth2.googleapis.com/token".into()).expect("Failed to parse token url")
 });
 
-type GoogleClient = Client<
+pub type GoogleClient = Client<
     BasicErrorResponse,
     StandardTokenResponse<IdToken, BasicTokenType>,
     BasicTokenType,
@@ -43,6 +51,7 @@ impl ExtraTokenFields for IdToken {}
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct IdTokenDecoded {
     sub: String,
+    email: String,
 }
 
 #[derive(Debug, Clone)]
@@ -50,18 +59,15 @@ pub struct GoogleSession {
     bearer_access_token: AccessToken,
     expires_at: PrimitiveDateTime,
     refresh_token: RefreshToken,
+    email: String,
     sub: String,
 }
 
 impl GoogleSession {
-    const CLIENT_ID: &'static str =
-        "751704262503-61e56pavvl5d8l5fg6s62iejm8ft16ac.apps.googleusercontent.com";
-    const CLIENT_SECRET: &'static str = "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";
-
     pub async fn from_code(redirect_url: String, code: String) -> Result<Self, Error> {
         let client = GoogleClient::new(
-            ClientId::new(Self::CLIENT_ID.into()),
-            Some(ClientSecret::new(Self::CLIENT_SECRET.into())),
+            ClientId::new(CLIENT_ID.into()),
+            Some(ClientSecret::new(CLIENT_SECRET.into())),
             AUTH_URL.clone(),
             Some(TOKEN_URL.clone()),
         )
@@ -112,6 +118,7 @@ impl GoogleSession {
             bearer_access_token: auth.access_token().clone(),
             expires_at: PrimitiveDateTime::new(expires_at.date(), expires_at.time()),
             refresh_token,
+            email: id_token_decoded.claims.email,
             sub: id_token_decoded.claims.sub,
         })
     }
@@ -125,31 +132,29 @@ impl GoogleSession {
         user: User,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> Result<(), Error> {
-        use crate::schema::googlesession::dsl as dsl_gs;
+        use crate::schema::googleaccount::dsl as dsl_ga;
 
-        diesel::insert_into(dsl_gs::googlesession)
-            .values(crate::models::GoogleSession {
+        diesel::insert_into(dsl_ga::googleaccount)
+            .values(crate::models::GoogleAccount {
                 sub: self.sub.clone(),
+                email: self.email.clone(),
                 access_token: self.bearer_access_token.secret().clone(),
                 expires_at: self.expires_at.clone(),
                 refresh_token: self.refresh_token.secret().clone(),
                 user_id: user.id,
             })
-            .on_conflict(dsl_gs::sub)
+            .on_conflict(dsl_ga::sub)
             .do_update()
             .set((
-                dsl_gs::access_token.eq(self.bearer_access_token.secret()),
-                dsl_gs::expires_at.eq(&self.expires_at),
-                dsl_gs::refresh_token.eq(self.refresh_token.secret()),
-                dsl_gs::user_id.eq(&user.id),
+                dsl_ga::email.eq(self.email.clone()),
+                dsl_ga::access_token.eq(self.bearer_access_token.secret()),
+                dsl_ga::expires_at.eq(&self.expires_at),
+                dsl_ga::refresh_token.eq(self.refresh_token.secret()),
+                dsl_ga::user_id.eq(&user.id),
             ))
             .execute(conn)
             .await?;
 
         Ok(())
-    }
-
-    pub async fn bearer_header(&mut self) -> reqwest::header::HeaderValue {
-        todo!()
     }
 }

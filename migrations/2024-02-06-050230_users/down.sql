@@ -2,8 +2,8 @@ DROP TABLE InnerUserData;
 
 DROP TABLE InnerUserSession;
 
-DROP TABLE TwitchSession;
+DROP TABLE TwitchAccount;
 
-DROP TABLE GoogleSession;
+DROP TABLE GoogleAccount;
 
 DROP TABLE InnerUser;

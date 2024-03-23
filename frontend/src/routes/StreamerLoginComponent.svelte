@@ -17,7 +17,7 @@
 
     function signInCallback(authResult: { code: string }) {
         if (authResult["code"]) {
-            fetch("login/google", {
+            fetch("/api/v1/login/google", {
                 method: "POST",
                 headers: {
                     "X-Requested-With": "XMLHttpRequest",
@@ -56,7 +56,7 @@
                     client_id:
                         "751704262503-61e56pavvl5d8l5fg6s62iejm8ft16ac.apps.googleusercontent.com",
                     // Scopes to request in addition to 'profile' and 'email'
-                    //scope: 'additional_scope'
+                    scope: "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.channel-memberships.creator",
                     plugin_name: "halogin",
                 });
             });

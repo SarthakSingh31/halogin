@@ -1,8 +1,9 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    googlesession (sub) {
+    googleaccount (sub) {
         sub -> Text,
+        email -> Text,
         access_token -> Text,
         expires_at -> Timestamp,
         refresh_token -> Text,
@@ -35,7 +36,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    twitchsession (id) {
+    twitchaccount (id) {
         id -> Text,
         access_token -> Text,
         expires_at -> Timestamp,
@@ -44,15 +45,15 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(googlesession -> inneruser (user_id));
+diesel::joinable!(googleaccount -> inneruser (user_id));
 diesel::joinable!(inneruserdata -> inneruser (id));
 diesel::joinable!(innerusersession -> inneruser (user_id));
-diesel::joinable!(twitchsession -> inneruser (user_id));
+diesel::joinable!(twitchaccount -> inneruser (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    googlesession,
+    googleaccount,
     inneruser,
     inneruserdata,
     innerusersession,
-    twitchsession,
+    twitchaccount,
 );

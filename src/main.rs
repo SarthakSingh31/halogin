@@ -1,7 +1,6 @@
 #![feature(duration_constructors)]
 #![feature(lazy_cell)]
 
-mod auth;
 mod google;
 mod models;
 mod schema;
@@ -59,8 +58,12 @@ async fn main() {
     });
 
     let app = Router::new()
-        .route("/login/:endpoint", routing::post(login))
-        .route("/attach/:endpoint", routing::post(attach))
+        .route("/api/v1/login/:endpoint", routing::post(login))
+        .route("/api/v1/attach/:endpoint", routing::post(attach))
+        .route(
+            "/api/v1/google/channels",
+            routing::get(google::Channel::get_for_user_handler),
+        )
         .nest_service("/", tower_http::services::ServeDir::new("frontend/build"));
 
     // run our app with hyper, listening globally on port 3000
@@ -97,7 +100,7 @@ async fn login(
 
             let mut conn = POOL.get().await?;
             let user = if let Some(google_user) =
-                models::GoogleSession::from_sub(session.sub(), &mut conn).await?
+                models::GoogleAccount::from_sub(session.sub(), &mut conn).await?
             {
                 User {
                     id: google_user.user_id,
@@ -142,36 +145,30 @@ struct AttachParams {
 }
 
 async fn attach(
-    authentication: auth::Authentication,
+    user: User,
     Path(endpoint): Path<AuthEndpoint>,
     Json(login_params): Json<AttachParams>,
 ) -> Result<(), Error> {
-    match authentication {
-        auth::Authentication::Unauthenticated => Err(Error::Custom {
-            status_code: StatusCode::UNAUTHORIZED,
-            error: "Requests to attach need to be made from an authenticated session".into(),
-        }),
-        auth::Authentication::Authenticated { user } => match endpoint {
-            AuthEndpoint::Google => {
-                let session = google::GoogleSession::from_code(
-                    login_params.redirect_origin,
-                    login_params.code,
-                )
-                .await?;
+    match endpoint {
+        AuthEndpoint::Google => {
+            let session =
+                google::GoogleSession::from_code(login_params.redirect_origin, login_params.code)
+                    .await?;
 
-                let mut conn = POOL.get().await?;
+            let mut conn = POOL.get().await?;
 
-                session.insert_or_update_for_user(user, &mut conn).await?;
+            session.insert_or_update_for_user(user, &mut conn).await?;
 
-                Ok(())
-            }
-            AuthEndpoint::Twitch => todo!(),
-        },
+            Ok(())
+        }
+        AuthEndpoint::Twitch => todo!(),
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Request must be made from an authenticated session")]
+    Unauthorized,
     #[error("An error occured: {status_code:?} => {error}")]
     Custom {
         status_code: StatusCode,
@@ -181,13 +178,18 @@ pub enum Error {
     PoolError(#[from] diesel_async::pooled_connection::deadpool::PoolError),
     #[error("Failed to user using the token from the DB: {0:?}")]
     QueryError(#[from] diesel::result::Error),
+    #[error("Failed to make a request: {0:?}")]
+    ReqwestError(#[from] reqwest::Error),
 }
 
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         match self {
+            Error::Unauthorized => {
+                (StatusCode::UNAUTHORIZED, Html(format!("{self:?}"))).into_response()
+            }
             Error::Custom { status_code, error } => (status_code, Html(error)).into_response(),
-            Error::PoolError(_) | Error::QueryError(_) => {
+            Error::PoolError(_) | Error::QueryError(_) | Error::ReqwestError(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("{self:?}"))).into_response()
             }
         }

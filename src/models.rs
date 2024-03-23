@@ -1,10 +1,16 @@
+use axum::{
+    async_trait,
+    extract::FromRequestParts,
+    http::{header::COOKIE, request::Parts, StatusCode},
+};
 use diesel::{pg::Pg, prelude::*};
 use diesel_async::{AsyncConnection, RunQueryDsl};
+use oauth2::{basic::BasicTokenType, ClientId, ClientSecret, RefreshToken, TokenResponse};
 use rand::Rng;
-use time::{OffsetDateTime, PrimitiveDateTime};
+use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
-use crate::Error;
+use crate::{google::GoogleClient, Error, SESSION_COOKIE_NAME};
 
 #[derive(Clone, Copy, Insertable, Queryable)]
 #[diesel(table_name = crate::schema::inneruser)]
@@ -25,6 +31,40 @@ impl User {
             .await?;
 
         Ok(user)
+    }
+}
+
+#[async_trait]
+impl<S> FromRequestParts<S> for User
+where
+    S: Send + Sync,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        if let Some(cookies) = parts.headers.get(COOKIE) {
+            let mut parts = cookies.as_bytes().split(|c| *c == b';');
+            while let Some(part) = parts.next() {
+                if let Ok(part) = std::str::from_utf8(part) {
+                    let part = part.trim();
+
+                    if let Some((name, value)) = part.split_once("=") {
+                        if name == SESSION_COOKIE_NAME {
+                            let mut conn = crate::POOL.get().await?;
+
+                            // We ignore the session cookie if we cannot find a session associated with it
+                            if let Some(user) =
+                                UserSession::get_user_by_token(value, &mut conn).await?
+                            {
+                                return Ok(user);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(Error::Unauthorized)
     }
 }
 
@@ -125,9 +165,9 @@ impl UserSession {
 }
 
 #[derive(Insertable, Queryable)]
-#[diesel(table_name = crate::schema::twitchsession)]
+#[diesel(table_name = crate::schema::twitchaccount)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct TwitchSession {
+pub struct TwitchAccount {
     pub id: String,
     pub access_token: String,
     pub expires_at: PrimitiveDateTime,
@@ -135,26 +175,29 @@ pub struct TwitchSession {
     pub user_id: Uuid,
 }
 
-#[derive(Insertable, Queryable)]
-#[diesel(table_name = crate::schema::googlesession)]
+#[derive(Clone, Insertable, Queryable, AsChangeset)]
+#[diesel(table_name = crate::schema::googleaccount)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct GoogleSession {
+pub struct GoogleAccount {
     pub sub: String,
+    pub email: String,
     pub access_token: String,
     pub expires_at: PrimitiveDateTime,
     pub refresh_token: String,
     pub user_id: Uuid,
 }
 
-impl GoogleSession {
+impl GoogleAccount {
+    const BUFFER_TIME: Duration = Duration::seconds(1);
+
     pub async fn from_sub(
         sub: &str,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> Result<Option<Self>, Error> {
-        use crate::schema::googlesession::dsl as dsl_gs;
+        use crate::schema::googleaccount::dsl as dsl_ga;
 
-        let user = dsl_gs::googlesession
-            .filter(dsl_gs::sub.eq(sub))
+        let user = dsl_ga::googleaccount
+            .filter(dsl_ga::sub.eq(sub))
             .first(conn)
             .await
             .optional()?;
@@ -162,17 +205,78 @@ impl GoogleSession {
         Ok(user)
     }
 
-    pub async fn get_sessions_for_user(
+    pub async fn get_for_user(
         user: User,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> Result<Vec<Self>, Error> {
-        use crate::schema::googlesession::dsl as dsl_gs;
+        use crate::schema::googleaccount::dsl as dsl_ga;
 
-        let sessions = dsl_gs::googlesession
-            .filter(dsl_gs::user_id.eq(user.id))
+        let accounts = dsl_ga::googleaccount
+            .filter(dsl_ga::user_id.eq(user.id))
             .load(conn)
             .await?;
 
-        Ok(sessions)
+        Ok(accounts)
+    }
+
+    pub async fn bearer_header(
+        &mut self,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<reqwest::header::HeaderMap, Error> {
+        let now = OffsetDateTime::now_utc();
+        if (PrimitiveDateTime::new(now.date(), now.time()) + Self::BUFFER_TIME) > self.expires_at {
+            let client = GoogleClient::new(
+                ClientId::new(crate::google::CLIENT_ID.into()),
+                Some(ClientSecret::new(crate::google::CLIENT_SECRET.into())),
+                crate::google::AUTH_URL.clone(),
+                Some(crate::google::TOKEN_URL.clone()),
+            );
+
+            let resp = client
+                .exchange_refresh_token(&RefreshToken::new(self.refresh_token.clone()))
+                .request_async(oauth2::reqwest::async_http_client)
+                .await
+                .map_err(|err| Error::Custom {
+                    status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                    error: format!(
+                        "Failed to exchange refresh token for a new access token: {err:?}"
+                    ),
+                })?;
+
+            assert_eq!(*resp.token_type(), BasicTokenType::Bearer);
+
+            let expires_at = resp
+                .expires_in()
+                .map(|duration| OffsetDateTime::now_utc() + duration)
+                .ok_or(Error::Custom {
+                    status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                    error: format!("Failed to get an expiry time for the given code"),
+                })?;
+            let refresh_token =
+                resp.refresh_token()
+                    .map(|token| token.clone())
+                    .ok_or(Error::Custom {
+                        status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                        error: format!("Could not get a refresh token for the given code"),
+                    })?;
+
+            self.access_token = resp.access_token().secret().clone();
+            self.expires_at = PrimitiveDateTime::new(expires_at.date(), expires_at.time());
+            self.refresh_token = refresh_token.secret().clone();
+
+            diesel::update(crate::schema::googleaccount::dsl::googleaccount)
+                .set(self.clone())
+                .execute(conn)
+                .await?;
+        }
+
+        let mut map = reqwest::header::HeaderMap::new();
+        map.insert(
+            reqwest::header::AUTHORIZATION,
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.access_token))
+                .expect("Failed to make the bearer token header value"),
+        );
+
+        Ok(map)
     }
 }
