@@ -13,7 +13,7 @@ use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
 use crate::twitch::TwitchSession;
-use crate::{google::GoogleSession, oauth::OAuthAccountHelper, Error, SESSION_COOKIE_NAME};
+use crate::{google::GoogleSession, utils::oauth::OAuthAccountHelper, Error, SESSION_COOKIE_NAME};
 const BUFFER_TIME: Duration = Duration::seconds(1);
 
 #[derive(Clone, Copy, Insertable, Queryable)]

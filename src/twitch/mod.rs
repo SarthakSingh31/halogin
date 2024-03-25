@@ -8,7 +8,7 @@ use time::PrimitiveDateTime;
 
 use crate::{
     models::{TwitchAccount, User},
-    oauth::OAuthAccountHelper,
+    utils::oauth::OAuthAccountHelper,
     Error,
 };
 

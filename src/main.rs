@@ -3,9 +3,9 @@
 
 mod google;
 mod models;
-mod oauth;
 mod schema;
 mod twitch;
+mod utils;
 
 use axum::{
     http::StatusCode,
