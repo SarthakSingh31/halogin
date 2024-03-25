@@ -10,7 +10,7 @@ use time::PrimitiveDateTime;
 
 use crate::{
     models::{GoogleAccount, User},
-    oauth::OAuthAccountHelper,
+    utils::oauth::OAuthAccountHelper,
     Error,
 };
 
