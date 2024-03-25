@@ -91,7 +91,7 @@ impl OAuthAccountHelper for TwitchSession {
             .values(TwitchAccount {
                 id: self.id.clone(),
                 access_token: self.access_token.secret().clone(),
-                expires_at: self.expires_at.clone(),
+                expires_at: self.expires_at,
                 refresh_token: self.refresh_token.secret().clone(),
                 user_id: user.id,
             })

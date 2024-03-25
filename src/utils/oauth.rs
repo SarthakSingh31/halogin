@@ -84,14 +84,13 @@ pub trait OAuthAccountHelper: Sized {
             .map(|duration| OffsetDateTime::now_utc() + duration)
             .ok_or(Error::Custom {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
-                error: format!("Failed to get an expiry time for the given code"),
+                error: "Failed to get an expiry time for the given code".to_string(),
             })?;
         let refresh_token =
-            auth.refresh_token()
-                .map(|token| token.clone())
+            auth.refresh_token().cloned()
                 .ok_or(Error::Custom {
                     status_code: StatusCode::INTERNAL_SERVER_ERROR,
-                    error: format!("Could not get a refresh token for the given code"),
+                    error: "Could not get a refresh token for the given code".to_string(),
                 })?;
 
         Ok(Self::new(
@@ -133,14 +132,13 @@ pub trait OAuthAccountHelper: Sized {
             .map(|duration| OffsetDateTime::now_utc() + duration)
             .ok_or(Error::Custom {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
-                error: format!("Failed to get an expiry time for the given code"),
+                error: "Failed to get an expiry time for the given code".to_string(),
             })?;
         let refresh_token =
-            resp.refresh_token()
-                .map(|token| token.clone())
+            resp.refresh_token().cloned()
                 .ok_or(Error::Custom {
                     status_code: StatusCode::INTERNAL_SERVER_ERROR,
-                    error: format!("Could not get a refresh token for the given code"),
+                    error: "Could not get a refresh token for the given code".to_string(),
                 })?;
 
         Ok(Self::new(
