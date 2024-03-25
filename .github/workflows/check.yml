@@ -9,6 +9,10 @@ jobs:
       with:
         rust-version: nightly
     - uses: actions/checkout@master
+    - name: Cache crates
+      uses: Swatinem/rust-cache@v2
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
     - name: Clippy Lint
       run: cargo clippy -- -Dwarnings
     - name: Run tests
