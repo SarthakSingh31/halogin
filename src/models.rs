@@ -47,12 +47,12 @@ impl FromRequestParts<Pool<AsyncPgConnection>> for User {
         pool: &Pool<AsyncPgConnection>,
     ) -> Result<Self, Self::Rejection> {
         if let Some(cookies) = parts.headers.get(COOKIE) {
-            let mut parts = cookies.as_bytes().split(|c| *c == b';');
-            while let Some(part) = parts.next() {
+            let parts = cookies.as_bytes().split(|c| *c == b';');
+            for part in parts {
                 if let Ok(part) = std::str::from_utf8(part) {
                     let part = part.trim();
 
-                    if let Some((name, value)) = part.split_once("=") {
+                    if let Some((name, value)) = part.split_once('=') {
                         if name == SESSION_COOKIE_NAME {
                             let mut conn = pool.get().await?;
 

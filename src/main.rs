@@ -18,7 +18,7 @@ use diesel_async::{
 };
 use time::Duration;
 
-const SESSION_COOKIE_NAME: &'static str = "HALOGIN-SESSION";
+const SESSION_COOKIE_NAME: &str = "HALOGIN-SESSION";
 const SESSION_COOKIE_DURATION: Duration = Duration::days(90);
 
 const PRUNE_INTERVAL: std::time::Duration = std::time::Duration::from_days(1);
