@@ -1,0 +1,15 @@
+name: Lint and Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: hecrj/setup-rust-action@v2
+      with:
+        rust-version: nightly
+    - uses: actions/checkout@master
+    - name: Clippy Lint
+      run: cargo clippy -- -Dwarnings
+    - name: Run tests
+      run: cargo test --verbose

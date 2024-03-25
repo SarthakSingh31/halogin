@@ -101,7 +101,7 @@ impl OAuthAccountHelper for GoogleSession {
                 sub: self.sub.clone(),
                 email: self.email.clone(),
                 access_token: self.access_token.secret().clone(),
-                expires_at: self.expires_at.clone(),
+                expires_at: self.expires_at,
                 refresh_token: self.refresh_token.secret().clone(),
                 user_id: user.id,
             })
