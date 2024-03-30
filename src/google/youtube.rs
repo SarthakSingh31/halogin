@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 
 use axum::{extract::State, Json};
-use diesel_async::{pooled_connection::deadpool::Pool, AsyncPgConnection};
 use serde::Deserialize;
 
 use crate::{
     models::{AuthenticationHeader, GoogleAccount, GoogleAccountMeta, User},
-    Error,
+    AppState, Error,
 };
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -19,11 +18,8 @@ pub struct Channel {
 }
 
 impl Channel {
-    pub async fn list(
-        user: User,
-        State(pool): State<Pool<AsyncPgConnection>>,
-    ) -> Result<Json<Vec<Self>>, Error> {
-        let mut conn = pool.get().await?;
+    pub async fn list(user: User, State(state): State<AppState>) -> Result<Json<Vec<Self>>, Error> {
+        let mut conn = state.get_conn().await?;
 
         #[derive(serde::Serialize, serde::Deserialize)]
         #[serde(rename_all = "camelCase")]

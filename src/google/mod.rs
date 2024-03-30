@@ -2,16 +2,14 @@ mod youtube;
 
 use axum::{routing, Router};
 use diesel::{pg::Pg, ExpressionMethods};
-use diesel_async::{
-    pooled_connection::deadpool::Pool, AsyncConnection, AsyncPgConnection, RunQueryDsl,
-};
+use diesel_async::{AsyncConnection, RunQueryDsl};
 use oauth2::{AccessToken, ExtraTokenFields, RefreshToken};
 use time::PrimitiveDateTime;
 
 use crate::{
     models::{GoogleAccount, User},
     utils::oauth::OAuthAccountHelper,
-    Error,
+    AppState, Error,
 };
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -121,7 +119,7 @@ impl OAuthAccountHelper for GoogleSession {
     }
 }
 
-pub fn router() -> Router<Pool<AsyncPgConnection>> {
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/login", routing::post(GoogleSession::login))
         .route("/channel/list", routing::get(youtube::Channel::list))
