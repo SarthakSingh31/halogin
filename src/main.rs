@@ -102,19 +102,19 @@ impl AppState {
         user: User,
         tx: mpsc::UnboundedSender<serde_json::Value>,
     ) -> DefaultKey {
-        let mut txs = self.rpc.entry(user.id).or_insert(DenseSlotMap::default());
+        let mut txs = self.rpc.entry(user.id).or_default();
         txs.insert(tx)
     }
 
     pub fn remove(&self, user: User, key: DefaultKey) {
-        let mut txs = self.rpc.entry(user.id).or_insert(DenseSlotMap::default());
+        let mut txs = self.rpc.entry(user.id).or_default();
         txs.remove(key);
     }
 
     pub fn send(&self, user: User, value: serde_json::Value) {
         if let Some(streams) = self.rpc.get(&user.id) {
             for (_, stream) in streams.iter() {
-                if let Err(_) = stream.send(value.clone()) {
+                if stream.send(value.clone()).is_err() {
                     tracing::error!(
                         "Failed to send message to user.\nUser: {}\nMessage: {value}",
                         user.id

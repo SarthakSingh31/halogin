@@ -143,7 +143,7 @@ impl<'f> RpcServerModule<'f> {
     {
         self.fns
             .entry(self.namespace)
-            .or_insert(fxhash::FxHashMap::default())
+            .or_default()
             .insert(func.name(), Box::new(RpcFnObj(Box::new(func))));
 
         self
@@ -204,35 +204,33 @@ async fn handle_socket(ws: WebSocket, user: User, state: AppState, rpc_server: A
                         Ok(rpc) => {
                             if let Some((namespace, method)) = rpc.func.split_once('.') {
                                 match rpc_server.call(namespace, method, rpc.data, user, state.clone()).await {
-                                    Ok(resp) => if let Err(_) = tx.send(
+                                    Ok(resp) => if tx.send(
                                         serde_json::json!({ "nonce": rpc.nonce, "response": resp }),
-                                    ) {
+                                    ).is_err() {
                                         tracing::error!("Failed to reply to RPC WS with an response");
                                     },
-                                    Err(err) => if let Err(_) = tx.send(
+                                    Err(err) => if tx.send(
                                         serde_json::json!({ "error": format!("Error while trying to call ({}): {err}", rpc.func)}),
-                                    ) {
+                                    ).is_err() {
                                         tracing::error!("Failed to reply to RPC WS with an error");
                                     },
                                 }
-                            } else {
-                                if let Err(_) = tx.send(
-                                    serde_json::json!({ "error": format!("RPC func not formatted properly: {}", rpc.func)}),
-                                ) {
-                                    tracing::error!("Failed to reply to RPC WS with an error");
-                                }
+                            } else if tx.send(
+                                serde_json::json!({ "error": format!("RPC func not formatted properly: {}", rpc.func)}),
+                            ).is_err() {
+                                tracing::error!("Failed to reply to RPC WS with an error");
                             }
                         },
-                        Err(err) => if let Err(_) = tx.send(
+                        Err(err) => if tx.send(
                             serde_json::json!({ "error": format!("Failed to parse the sent message: {err:?}")}),
-                        ) {
+                        ).is_err() {
                             tracing::error!("Failed to reply to RPC WS with an error");
                         },
                     },
                     _ => {
-                        if let Err(_) = tx.send(
+                        if tx.send(
                             serde_json::json!({ "error": "Recived value is not text"}),
-                        ) {
+                        ).is_err() {
                             tracing::error!("Failed to reply to RPC WS with an error");
                         }
                     }
@@ -240,9 +238,9 @@ async fn handle_socket(ws: WebSocket, user: User, state: AppState, rpc_server: A
                 // if let Some(func) = RPC_FNS.get(msg.method)
             }
             Err(err) => {
-                if let Err(_) = tx.send(
+                if tx.send(
                     serde_json::json!({ "error": format!("Failed to read last value sent over the WS: {err}")}),
-                ) {
+                ).is_err() {
                     tracing::error!("Failed to reply to RPC WS with an error");
                 }
             }
