@@ -1,19 +1,26 @@
+use std::io::Write;
+
 use axum::{
     async_trait,
     extract::FromRequestParts,
     http::{header::COOKIE, request::Parts},
 };
-use diesel::{pg::Pg, prelude::*};
-use diesel_async::{
-    pooled_connection::deadpool::Pool, AsyncConnection, AsyncPgConnection, RunQueryDsl,
+use diesel::{
+    data_types::Cents,
+    deserialize::{self, FromSql, FromSqlRow},
+    pg::{Pg, PgValue},
+    prelude::*,
+    serialize::{self, IsNull, Output, ToSql},
+    AsExpression,
 };
+use diesel_async::{AsyncConnection, RunQueryDsl};
 use oauth2::RefreshToken;
 use rand::Rng;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
-use crate::twitch::TwitchSession;
 use crate::{google::GoogleSession, utils::oauth::OAuthAccountHelper, Error, SESSION_COOKIE_NAME};
+use crate::{twitch::TwitchSession, AppState};
 const BUFFER_TIME: Duration = Duration::seconds(1);
 
 #[derive(Clone, Copy, Insertable, Queryable)]
@@ -39,12 +46,12 @@ impl User {
 }
 
 #[async_trait]
-impl FromRequestParts<Pool<AsyncPgConnection>> for User {
+impl FromRequestParts<AppState> for User {
     type Rejection = Error;
 
     async fn from_request_parts(
         parts: &mut Parts,
-        pool: &Pool<AsyncPgConnection>,
+        state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         if let Some(cookies) = parts.headers.get(COOKIE) {
             let parts = cookies.as_bytes().split(|c| *c == b';');
@@ -54,7 +61,7 @@ impl FromRequestParts<Pool<AsyncPgConnection>> for User {
 
                     if let Some((name, value)) = part.split_once('=') {
                         if name == SESSION_COOKIE_NAME {
-                            let mut conn = pool.get().await?;
+                            let mut conn = state.get_conn().await?;
 
                             // We ignore the session cookie if we cannot find a session associated with it
                             if let Some(user) =
@@ -339,5 +346,279 @@ impl AuthenticationHeader for TwitchAccount {
         self.expires_at = session.expires_at();
         self.refresh_token = session.refresh_token();
         // session.id does not change so we don't need to update it
+    }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    FromSqlRow,
+    AsExpression,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[diesel(sql_type = crate::schema::sql_types::Contractstatus)]
+pub enum ContractStatus {
+    AcceptedByCreator,
+    WithdrawnByCompany,
+    CancelledByCreator,
+    FinishedByCreator,
+    ApprovedByCompany,
+}
+
+impl ToSql<crate::schema::sql_types::Contractstatus, Pg> for ContractStatus {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
+        match *self {
+            ContractStatus::AcceptedByCreator => out.write_all(b"AcceptedByCreator")?,
+            ContractStatus::WithdrawnByCompany => out.write_all(b"WithdrawnByCompany")?,
+            ContractStatus::CancelledByCreator => out.write_all(b"CancelledByCreator")?,
+            ContractStatus::FinishedByCreator => out.write_all(b"FinishedByCreator")?,
+            ContractStatus::ApprovedByCompany => out.write_all(b"ApprovedByCompany")?,
+        }
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<crate::schema::sql_types::Contractstatus, Pg> for ContractStatus {
+    fn from_sql(bytes: PgValue<'_>) -> deserialize::Result<Self> {
+        match bytes.as_bytes() {
+            b"AcceptedByCreator" => Ok(ContractStatus::AcceptedByCreator),
+            b"WithdrawnByCompany" => Ok(ContractStatus::WithdrawnByCompany),
+            b"CancelledByCreator" => Ok(ContractStatus::CancelledByCreator),
+            b"FinishedByCreator" => Ok(ContractStatus::FinishedByCreator),
+            b"ApprovedByCompany" => Ok(ContractStatus::ApprovedByCompany),
+            _ => Err("Unrecognized enum variant".into()),
+        }
+    }
+}
+
+#[derive(Clone, Insertable, Queryable, AsChangeset)]
+#[diesel(table_name = crate::schema::companyuser)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct CompanyUser {
+    pub company_id: Uuid,
+    pub user_id: Uuid,
+    pub is_admin: bool,
+}
+
+impl CompanyUser {
+    pub async fn company_for_user(
+        user_id: Uuid,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Vec<CompanyInfo>, Error> {
+        use crate::schema::companyuser::dsl as dsl_cu;
+
+        let company_ids = dsl_cu::companyuser
+            .filter(dsl_cu::user_id.eq(user_id))
+            .select(dsl_cu::company_id)
+            .load::<Uuid>(conn)
+            .await?;
+
+        let mut companies = Vec::default();
+
+        use crate::schema::company::dsl as dsl_c;
+
+        for company_id in company_ids {
+            let (name, logo) = dsl_c::company
+                .filter(dsl_c::id.eq(company_id))
+                .select((dsl_c::full_name, dsl_c::logo_url))
+                .first::<(String, String)>(conn)
+                .await?;
+            companies.push(CompanyInfo { name, logo });
+        }
+
+        Ok(companies)
+    }
+
+    pub async fn users_in_company(
+        company_id: Uuid,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Vec<Uuid>, Error> {
+        use crate::schema::companyuser::dsl as dsl_cu;
+
+        let users = dsl_cu::companyuser
+            .filter(dsl_cu::company_id.eq(company_id))
+            .select(dsl_cu::user_id)
+            .load::<Uuid>(conn)
+            .await?;
+
+        Ok(users)
+    }
+}
+
+#[derive(Clone, Insertable, Queryable, AsChangeset)]
+#[diesel(table_name = crate::schema::chatroom)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct ChatRoom {
+    pub id: Uuid,
+    pub company_id: Uuid,
+    pub user_id: Uuid,
+}
+
+impl ChatRoom {
+    pub async fn from_id(
+        room_id: Uuid,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Option<Self>, Error> {
+        use crate::schema::chatroom::dsl as dsl_cr;
+
+        let room = dsl_cr::chatroom
+            .filter(dsl_cr::id.eq(room_id))
+            .first(conn)
+            .await
+            .optional()?;
+
+        Ok(room)
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct CompanyInfo {
+    pub name: String,
+    pub logo: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct UserInfo {
+    pub given_name: String,
+    pub family_name: String,
+    pub company: Vec<CompanyInfo>,
+}
+
+impl UserInfo {
+    pub async fn from_id(
+        user_id: Uuid,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Option<Self>, Error> {
+        if let Some(user_data) = UserData::from_user(User { id: user_id }, conn).await? {
+            Ok(Some(UserInfo {
+                given_name: user_data.given_name,
+                family_name: user_data.family_name,
+                company: CompanyUser::company_for_user(user_id, conn).await?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct Message {
+    pub id: i64,
+    pub from_user: Uuid,
+    pub content: String,
+    pub created_at: PrimitiveDateTime,
+    pub extra: Option<MessageExtra>,
+}
+
+impl Message {
+    pub async fn list(
+        room_id: Uuid,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Vec<Self>, Error> {
+        #[derive(Clone, Selectable, Queryable)]
+        #[diesel(table_name = crate::schema::chatmessage)]
+        #[diesel(check_for_backend(diesel::pg::Pg))]
+        struct DbMessage {
+            id: i64,
+            from_user_id: Uuid,
+            content: String,
+            created_at: PrimitiveDateTime,
+        }
+
+        use crate::schema::chatmessage::dsl as dsl_cm;
+
+        let db_messages = dsl_cm::chatmessage
+            .filter(dsl_cm::room_id.eq(room_id))
+            .order_by(dsl_cm::id.asc())
+            .select(DbMessage::as_select())
+            .load::<DbMessage>(conn)
+            .await?;
+        let mut messages = Vec::with_capacity(db_messages.len());
+
+        use crate::schema::chatcontractoffer::dsl as dsl_cco;
+        use crate::schema::chatcontractupdate::dsl as dsl_ccu;
+
+        for db_message in db_messages {
+            let mut extra = None;
+
+            let contract_offer = dsl_cco::chatcontractoffer
+                .filter(dsl_cco::message_id.eq(db_message.id))
+                .select((dsl_cco::id, dsl_cco::offered_payout))
+                .first::<(i64, Cents)>(conn)
+                .await
+                .optional()?;
+
+            if let Some((offer_id, payout)) = contract_offer {
+                extra = Some(MessageExtra::ContractCreated {
+                    offer_id,
+                    payout: payout.0,
+                });
+            } else {
+                let contract_update = dsl_ccu::chatcontractupdate
+                    .filter(dsl_ccu::message_id.eq(db_message.id))
+                    .select((dsl_ccu::offer_id, dsl_ccu::update_kind))
+                    .first::<(i64, ContractStatus)>(conn)
+                    .await
+                    .optional()?;
+
+                if let Some((offer_id, new_status)) = contract_update {
+                    extra = Some(MessageExtra::ContractStatusChange {
+                        offer_id,
+                        new_status,
+                    });
+                }
+            }
+
+            messages.push(Message {
+                id: db_message.id,
+                from_user: db_message.from_user_id,
+                content: db_message.content,
+                created_at: db_message.created_at,
+                extra,
+            });
+        }
+
+        Ok(messages)
+    }
+}
+
+#[derive(serde::Serialize)]
+pub enum MessageExtra {
+    ContractCreated {
+        offer_id: i64,
+        payout: i64,
+    },
+    ContractStatusChange {
+        offer_id: i64,
+        new_status: ContractStatus,
+    },
+}
+
+#[derive(Clone, Selectable, Queryable)]
+#[diesel(table_name = crate::schema::chatlastseen)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct ChatLastSeen {
+    pub user_id: Uuid,
+    pub last_message_seen_id: i64,
+}
+
+impl ChatLastSeen {
+    pub async fn list(
+        room_id: Uuid,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Vec<Self>, Error> {
+        use crate::schema::chatlastseen::dsl as dsl_cls;
+
+        let last_seens = dsl_cls::chatlastseen
+            .filter(dsl_cls::room_id.eq(room_id))
+            .select(ChatLastSeen::as_select())
+            .load(conn)
+            .await?;
+
+        Ok(last_seens)
     }
 }
