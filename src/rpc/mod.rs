@@ -210,13 +210,19 @@ async fn handle_socket(ws: WebSocket, user: User, state: AppState, rpc_server: A
                                         tracing::error!("Failed to reply to RPC WS with an response");
                                     },
                                     Err(err) => if tx.send(
-                                        serde_json::json!({ "error": format!("Error while trying to call ({}): {err}", rpc.func)}),
+                                        serde_json::json!({
+                                            "nonce": rpc.nonce,
+                                            "error": format!("Error while trying to call ({}): {err}", rpc.func),
+                                        }),
                                     ).is_err() {
                                         tracing::error!("Failed to reply to RPC WS with an error");
                                     },
                                 }
                             } else if tx.send(
-                                serde_json::json!({ "error": format!("RPC func not formatted properly: {}", rpc.func)}),
+                                serde_json::json!({
+                                    "nonce": rpc.nonce,
+                                    "error": format!("RPC func not formatted properly: {}", rpc.func),
+                                }),
                             ).is_err() {
                                 tracing::error!("Failed to reply to RPC WS with an error");
                             }
