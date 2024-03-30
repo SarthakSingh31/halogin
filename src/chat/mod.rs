@@ -16,6 +16,73 @@ struct ChatRoom {
 }
 
 #[derive(serde::Deserialize)]
+enum CreateParam {
+    WithCompany(Uuid),
+    WithUser {
+        current_user_company_id: Uuid,
+        other_user_id: Uuid,
+    },
+}
+
+async fn create(param: CreateParam, user: models::User, state: AppState) -> Result<Uuid, Error> {
+    let mut conn = state.get_conn().await?;
+
+    let (company_id, user_id) = match param {
+        CreateParam::WithCompany(company_id) => (company_id, user.id),
+        CreateParam::WithUser {
+            current_user_company_id,
+            other_user_id,
+        } => {
+            let current_user_info = models::UserInfo::from_id(user.id, &mut conn)
+                .await?
+                .expect("Failed to find the user who is the owner of the current session");
+            if current_user_info
+                .company
+                .into_iter()
+                .any(|company_id| company_id.id == current_user_company_id)
+            {
+                (current_user_company_id, other_user_id)
+            } else {
+                return Err(Error::Custom {
+                    status_code: StatusCode::UNAUTHORIZED,
+                    error: "You are not in that company".into(),
+                });
+            }
+        }
+    };
+
+    let users_in_company = models::CompanyUser::users_in_company(company_id, &mut conn).await?;
+    if users_in_company.iter().any(|id| *id == user_id) {
+        return Err(Error::Custom {
+            status_code: StatusCode::BAD_REQUEST,
+            error: "Cannot make a chat with a user of the same company".into(),
+        });
+    }
+
+    let room_id = models::ChatRoom::create(company_id, user_id, &mut conn).await?;
+    let user_ids = users_in_company.into_iter().chain([user_id]);
+
+    let notification = serde_json::json!({
+        "kind": "chat.new_room",
+        "data": {
+            "room_id": room_id,
+        },
+    });
+
+    for id in user_ids {
+        state.send(models::User { id }, notification.clone());
+    }
+
+    Ok(room_id)
+}
+
+async fn list(_param: (), user: models::User, state: AppState) -> Result<Vec<Uuid>, Error> {
+    let mut conn = state.get_conn().await?;
+
+    models::ChatRoom::list(user.id, &mut conn).await
+}
+
+#[derive(serde::Deserialize)]
 struct SubscribeParam {
     room_id: Uuid,
 }
@@ -88,8 +155,11 @@ async fn post(message: Message, user: models::User, state: AppState) -> Result<(
 
         let message = message.insert(user.id, &mut conn).await?;
         let notification = serde_json::json!({
-            "room_id": room.id,
-            "message": message,
+            "kind": "chat.message",
+            "data": {
+                "room_id": room.id,
+                "message": message,
+            },
         });
 
         for id in users {
@@ -199,5 +269,9 @@ enum MessageExtra {
 }
 
 pub fn module(modules: RpcServerModule<'_>) {
-    modules.add_fn(subscribe).add_fn(post);
+    modules
+        .add_fn(create)
+        .add_fn(list)
+        .add_fn(subscribe)
+        .add_fn(post);
 }

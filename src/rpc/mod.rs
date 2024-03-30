@@ -153,6 +153,7 @@ impl<'f> RpcServerModule<'f> {
 #[derive(Debug, serde::Deserialize)]
 pub struct RpcCall {
     func: String,
+    #[serde(default)]
     data: serde_json::Value,
     nonce: usize,
 }
@@ -198,55 +199,60 @@ async fn handle_socket(ws: WebSocket, user: User, state: AppState, rpc_server: A
 
     while let Some(msg) = ws_rx.next().await {
         match msg {
-            Ok(msg) => {
-                match msg {
-                    axum::extract::ws::Message::Text(msg)=> match serde_json::from_str::<RpcCall>(&msg) {
-                        Ok(rpc) => {
-                            if let Some((namespace, method)) = rpc.func.split_once('.') {
-                                match rpc_server.call(namespace, method, rpc.data, user, state.clone()).await {
-                                    Ok(resp) => if tx.send(
-                                        serde_json::json!({ "nonce": rpc.nonce, "response": resp }),
-                                    ).is_err() {
+            Ok(msg) => match msg {
+                axum::extract::ws::Message::Text(msg) => match serde_json::from_str::<RpcCall>(&msg)
+                {
+                    Ok(rpc) => if let Some((namespace, method)) = rpc.func.split_once('.') {
+                        match rpc_server.call(namespace, method, rpc.data, user, state.clone()).await {
+                                    Ok(resp) => if !resp.is_null() && tx.send(serde_json::json!({
+                                        "nonce": rpc.nonce,
+                                        "response": resp,
+                                    })).is_err() {
                                         tracing::error!("Failed to reply to RPC WS with an response");
                                     },
-                                    Err(err) => if tx.send(
-                                        serde_json::json!({
+                                    Err(err) => if tx.send(serde_json::json!({
                                             "nonce": rpc.nonce,
                                             "error": format!("Error while trying to call ({}): {err}", rpc.func),
-                                        }),
-                                    ).is_err() {
+                                    })).is_err() {
                                         tracing::error!("Failed to reply to RPC WS with an error");
                                     },
                                 }
-                            } else if tx.send(
-                                serde_json::json!({
-                                    "nonce": rpc.nonce,
-                                    "error": format!("RPC func not formatted properly: {}", rpc.func),
-                                }),
-                            ).is_err() {
-                                tracing::error!("Failed to reply to RPC WS with an error");
-                            }
-                        },
-                        Err(err) => if tx.send(
-                            serde_json::json!({ "error": format!("Failed to parse the sent message: {err:?}")}),
-                        ).is_err() {
-                            tracing::error!("Failed to reply to RPC WS with an error");
-                        },
+                    } else if tx
+                        .send(serde_json::json!({
+                                "nonce": rpc.nonce,
+                                "error": format!("RPC func not formatted properly: {}", rpc.func),
+                        }))
+                        .is_err()
+                    {
+                        tracing::error!("Failed to reply to RPC WS with an error");
                     },
-                    _ => {
-                        if tx.send(
-                            serde_json::json!({ "error": "Recived value is not text"}),
-                        ).is_err() {
+                    Err(err) => {
+                        if tx
+                            .send(serde_json::json!({
+                                "error": format!("Failed to parse the sent message: {err:?}"),
+                            }))
+                            .is_err()
+                        {
                             tracing::error!("Failed to reply to RPC WS with an error");
                         }
                     }
+                },
+                _ => {
+                    if tx
+                        .send(serde_json::json!({ "error": "Recived value is not text"}))
+                        .is_err()
+                    {
+                        tracing::error!("Failed to reply to RPC WS with an error");
+                    }
                 }
-                // if let Some(func) = RPC_FNS.get(msg.method)
-            }
+            },
             Err(err) => {
-                if tx.send(
-                    serde_json::json!({ "error": format!("Failed to read last value sent over the WS: {err}")}),
-                ).is_err() {
+                if tx
+                    .send(serde_json::json!({
+                        "error": format!("Failed to read last value sent over the WS: {err}"),
+                    }))
+                    .is_err()
+                {
                     tracing::error!("Failed to reply to RPC WS with an error");
                 }
             }

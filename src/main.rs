@@ -140,7 +140,7 @@ pub enum Error {
     },
     #[error("Failed to get connection from pool: {0:?}")]
     PoolError(#[from] diesel_async::pooled_connection::deadpool::PoolError),
-    #[error("Failed to user using the token from the DB: {0:?}")]
+    #[error("Failed to query using the token from the DB: {0:?}")]
     QueryError(#[from] diesel::result::Error),
     #[error("Failed to make a request: {0:?}")]
     ReqwestError(#[from] reqwest::Error),

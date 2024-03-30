@@ -427,7 +427,11 @@ impl CompanyUser {
                 .select((dsl_c::full_name, dsl_c::logo_url))
                 .first::<(String, String)>(conn)
                 .await?;
-            companies.push(CompanyInfo { name, logo });
+            companies.push(CompanyInfo {
+                id: company_id,
+                name,
+                logo,
+            });
         }
 
         Ok(companies)
@@ -473,10 +477,47 @@ impl ChatRoom {
 
         Ok(room)
     }
+
+    pub async fn create(
+        company_id: Uuid,
+        user_id: Uuid,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Uuid, Error> {
+        use crate::schema::chatroom::dsl as dsl_cr;
+
+        let room_id = Uuid::new_v4();
+
+        diesel::insert_into(dsl_cr::chatroom)
+            .values((
+                dsl_cr::id.eq(room_id),
+                dsl_cr::company_id.eq(company_id),
+                dsl_cr::user_id.eq(user_id),
+            ))
+            .execute(conn)
+            .await?;
+
+        Ok(room_id)
+    }
+
+    pub async fn list(
+        user_id: Uuid,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Vec<Uuid>, Error> {
+        use crate::schema::chatroom::dsl as dsl_cr;
+
+        let rooms = dsl_cr::chatroom
+            .filter(dsl_cr::user_id.eq(user_id))
+            .select(dsl_cr::id)
+            .load::<Uuid>(conn)
+            .await?;
+
+        Ok(rooms)
+    }
 }
 
 #[derive(serde::Serialize)]
 pub struct CompanyInfo {
+    pub id: Uuid,
     pub name: String,
     pub logo: String,
 }
