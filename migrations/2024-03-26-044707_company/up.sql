@@ -24,6 +24,12 @@ CREATE TABLE ChatRoom (
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
 );
 
+CREATE TABLE UserFcmToken (
+    token TEXT PRIMARY KEY,
+    user_id UUID NOT NULL,
+    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
+);
+
 CREATE TABLE ChatMessage (
     id BIGSERIAL PRIMARY KEY,
     room_id UUID NOT NULL,

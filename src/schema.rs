@@ -116,6 +116,13 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    userfcmtoken (token) {
+        token -> Text,
+        user_id -> Uuid,
+    }
+}
+
 diesel::joinable!(chatcontractoffer -> chatmessage (message_id));
 diesel::joinable!(chatcontractupdate -> chatcontractoffer (offer_id));
 diesel::joinable!(chatcontractupdate -> chatmessage (message_id));
@@ -132,6 +139,7 @@ diesel::joinable!(googleaccount -> inneruser (user_id));
 diesel::joinable!(inneruserdata -> inneruser (id));
 diesel::joinable!(innerusersession -> inneruser (user_id));
 diesel::joinable!(twitchaccount -> inneruser (user_id));
+diesel::joinable!(userfcmtoken -> inneruser (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     chatcontractoffer,
@@ -146,4 +154,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     inneruserdata,
     innerusersession,
     twitchaccount,
+    userfcmtoken,
 );

@@ -12,6 +12,8 @@ DROP TABLE ChatLastSeen;
 
 DROP TABLE ChatMessage;
 
+DROP TABLE UserFcmToken;
+
 DROP TABLE ChatRoom;
 
 DROP TABLE CompanyUser;
