@@ -29,6 +29,7 @@
   },
   "type": "module",
   "dependencies": {
+    "firebase": "^10.10.0",
     "svelte-fa": "^4.0.2"
   }
 }

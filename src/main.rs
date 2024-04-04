@@ -12,14 +12,19 @@ mod utils;
 use std::sync::Arc;
 
 use axum::{
-    http::StatusCode,
+    async_trait,
+    extract::{FromRequestParts, Path, State},
+    http::{request::Parts, StatusCode},
     response::{Html, IntoResponse},
     Router,
 };
 use dashmap::DashMap;
 use diesel::pg::Pg;
 use diesel_async::{
-    pooled_connection::{deadpool::Pool, AsyncDieselConnectionManager},
+    pooled_connection::{
+        deadpool::{Object, Pool},
+        AsyncDieselConnectionManager,
+    },
     AsyncConnection, AsyncPgConnection,
 };
 use models::User;
@@ -58,6 +63,65 @@ async fn main() {
         }
     });
 
+    let mut fcm_client = fcm::Client::new()
+        .await
+        .expect("Failed to build fcm::Client");
+    let (fcm_tx, mut fcm_rx) = mpsc::unbounded_channel();
+    let state = AppState::new(db_url, fcm_tx.clone()).await;
+
+    let pool = state.pool.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = fcm_rx.recv().await {
+            if let Err(err) = fcm_client.send(&msg).await {
+                match err {
+                    fcm::Error::InvalidMessage(err) => match &msg.target {
+                        fcm::Target::Token(token) => match pool.get().await {
+                            Ok(mut conn) => {
+                                if let Err(err) =
+                                    models::UserFcmToken::delete(token, &mut conn).await
+                                {
+                                    tracing::error!("Failed to delete old fcm token: {err:?}")
+                                }
+                            }
+                            Err(err) => {
+                                tracing::error!("Failed to get connection from pool: {err:?}")
+                            }
+                        },
+                        target @ _ => {
+                            tracing::error!("Failed to send message with target: {target:?} with error: {err:?}");
+                        }
+                    },
+                    fcm::Error::ServerError(Some(retry_after)) => {
+                        let fcm_tx = fcm_tx.clone();
+                        tokio::spawn(async move {
+                            let delay = match retry_after {
+                                fcm::RetryAfter::Delay(delay) => delay,
+                                fcm::RetryAfter::DateTime(date_time) => {
+                                    date_time - time::OffsetDateTime::now_utc()
+                                }
+                            };
+
+                            // Making the delay non negative and then waiting for that duration
+                            tokio::time::sleep(
+                                delay
+                                    .clamp(time::Duration::ZERO, time::Duration::MAX)
+                                    .unsigned_abs(),
+                            )
+                            .await;
+
+                            if fcm_tx.send(msg).is_err() {
+                                tracing::error!(
+                                    "Failed to re-queue a message after it was set to retry"
+                                );
+                            }
+                        });
+                    }
+                    _ => tracing::error!("Failed to send message over fcm: {err:?}"),
+                }
+            }
+        }
+    });
+
     let app = Router::new()
         .nest("/api/v1/google", google::router())
         .nest("/api/v1/twitch", twitch::router())
@@ -66,30 +130,35 @@ async fn main() {
             rpc::router(rpc::RpcServer::default().add_module("chat", chat::module)),
         )
         .nest_service("/", tower_http::services::ServeDir::new("frontend/build"))
-        .with_state(AppState::new(db_url));
+        .route("/test/:id", axum::routing::get(test))
+        .with_state(state);
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct AppState {
-    pool: Pool<AsyncPgConnection>,
-    rpc: Arc<DashMap<Uuid, DenseSlotMap<DefaultKey, mpsc::UnboundedSender<serde_json::Value>>>>,
+    pool: &'static Pool<AsyncPgConnection>,
+    rpc: &'static DashMap<Uuid, DenseSlotMap<DefaultKey, mpsc::UnboundedSender<serde_json::Value>>>,
+    fcm_tx: &'static mpsc::UnboundedSender<fcm::Message>,
 }
 
 impl AppState {
-    fn new(db_url: &str) -> Self {
+    async fn new(db_url: &str, fcm_tx: mpsc::UnboundedSender<fcm::Message>) -> Self {
         Self {
             pool: {
                 let config = AsyncDieselConnectionManager::new(db_url);
 
-                Pool::<AsyncPgConnection>::builder(config)
+                let pool = Pool::<AsyncPgConnection>::builder(config)
                     .build()
-                    .expect("Failed to build the pool")
+                    .expect("Failed to build the pool");
+
+                Box::leak(Box::new(pool))
             },
-            rpc: Default::default(),
+            rpc: Box::leak(Box::new(Default::default())),
+            fcm_tx: Box::leak(Box::new(fcm_tx)),
         }
     }
 
@@ -122,6 +191,23 @@ impl AppState {
                 }
             }
         }
+    }
+}
+
+pub struct PgConn {
+    pub conn: Object<AsyncPgConnection>,
+}
+
+#[async_trait]
+impl FromRequestParts<AppState> for PgConn {
+    type Rejection = Error;
+
+    async fn from_request_parts(
+        _parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let conn = state.pool.get().await?;
+        Ok(PgConn { conn })
     }
 }
 
@@ -168,4 +254,32 @@ impl IntoResponse for Error {
             }
         }
     }
+}
+
+async fn test(Path(id): Path<String>, State(state): State<AppState>) {
+    println!("Called test");
+
+    let data = serde_json::json!({
+        "key": "value",
+    });
+
+    let message = fcm::Message {
+        data: Some(data.clone()),
+        notification: Some(fcm::Notification {
+            title: Some("I'm high".to_string()),
+            body: Some(format!("it's {}", time::OffsetDateTime::now_utc())),
+            ..Default::default()
+        }),
+        target: fcm::Target::Token(id),
+        fcm_options: None,
+        android: None,
+        apns: None,
+        webpush: None,
+    };
+
+    tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        state.fcm_tx.send(message).expect("Failed to send message");
+    });
 }

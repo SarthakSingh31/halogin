@@ -57,12 +57,10 @@ pub trait OAuthAccountHelper: Sized {
             BasicTokenIntrospectionResponse,
             StandardRevocableToken,
             BasicRevocationErrorResponse,
-        >::new(
-            ClientId::new(Self::CLIENT_ID.into()),
-            Some(ClientSecret::new(Self::CLIENT_SECRET.into())),
-            AuthUrl::new(Self::AUTH_URL.into())?,
-            Some(TokenUrl::new(Self::TOKEN_URL.into())?),
-        )
+        >::new(ClientId::new(Self::CLIENT_ID.into()))
+        .set_client_secret(ClientSecret::new(Self::CLIENT_SECRET.into()))
+        .set_auth_uri(AuthUrl::new(Self::AUTH_URL.into())?)
+        .set_token_uri(TokenUrl::new(Self::TOKEN_URL.into())?)
         .set_redirect_uri(RedirectUrl::new(redirect_url).map_err(|err| Error::Custom {
             status_code: StatusCode::BAD_REQUEST,
             error: format!("Failed to parse redirect url: {err:?}"),
@@ -70,7 +68,7 @@ pub trait OAuthAccountHelper: Sized {
 
         let auth = client
             .exchange_code(oauth2::AuthorizationCode::new(code))
-            .request_async(oauth2::reqwest::async_http_client)
+            .request_async(&reqwest::Client::default())
             .await
             .map_err(|err| Error::Custom {
                 status_code: StatusCode::BAD_REQUEST,
@@ -107,16 +105,14 @@ pub trait OAuthAccountHelper: Sized {
             BasicTokenIntrospectionResponse,
             StandardRevocableToken,
             BasicRevocationErrorResponse,
-        >::new(
-            ClientId::new(Self::CLIENT_ID.into()),
-            Some(ClientSecret::new(Self::CLIENT_SECRET.into())),
-            AuthUrl::new(Self::AUTH_URL.into())?,
-            Some(TokenUrl::new(Self::TOKEN_URL.into())?),
-        );
+        >::new(ClientId::new(Self::CLIENT_ID.into()))
+        .set_client_secret(ClientSecret::new(Self::CLIENT_SECRET.into()))
+        .set_auth_uri(AuthUrl::new(Self::AUTH_URL.into())?)
+        .set_token_uri(TokenUrl::new(Self::TOKEN_URL.into())?);
 
         let resp = client
             .exchange_refresh_token(&refresh_token)
-            .request_async(oauth2::reqwest::async_http_client)
+            .request_async(&reqwest::Client::default())
             .await
             .map_err(|err| Error::Custom {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,

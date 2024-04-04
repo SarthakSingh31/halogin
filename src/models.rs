@@ -454,6 +454,30 @@ impl CompanyUser {
 }
 
 #[derive(Clone, Insertable, Queryable, AsChangeset)]
+#[diesel(table_name = crate::schema::userfcmtoken)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct UserFcmToken {
+    pub token: String,
+    pub user_id: Uuid,
+}
+
+impl UserFcmToken {
+    pub async fn delete(
+        token: &str,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<(), Error> {
+        use crate::schema::userfcmtoken::dsl as dsl_uft;
+
+        diesel::delete(dsl_uft::userfcmtoken)
+            .filter(dsl_uft::token.eq(token))
+            .execute(conn)
+            .await?;
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Insertable, Queryable, AsChangeset)]
 #[diesel(table_name = crate::schema::chatroom)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ChatRoom {
