@@ -2,7 +2,13 @@
 # see https://diesel.rs/guides/configuring-diesel-cli
 
 [print_schema]
-file = "src/schema.rs"
+file = "src/db/schema.rs"
+import_types = [
+    "diesel::sql_types::*",
+    "pgvector::sql_types::*",
+    "super::super::sql_types::*",
+]
+generate_missing_sql_type_definitions = false
 custom_type_derives = ["diesel::query_builder::QueryId"]
 
 [migrations_directory]

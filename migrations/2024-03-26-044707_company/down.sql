@@ -1,10 +1,10 @@
-DROP TRIGGER contract_update_checker ON ChatContractUpdate;
+DROP TRIGGER contract_offer_update_checker ON ChatContractOfferUpdate;
 
-DROP FUNCTION check_contract_update();
+DROP FUNCTION check_contract_offer_update();
 
-DROP TABLE ChatContractUpdate;
+DROP TABLE ChatContractOfferUpdate;
 
-DROP TYPE ContractStatus;
+DROP TYPE ContractOfferStatus;
 
 DROP TABLE ChatContractOffer;
 
@@ -12,7 +12,7 @@ DROP TABLE ChatLastSeen;
 
 DROP TABLE ChatMessage;
 
-DROP TABLE UserFcmToken;
+DROP TABLE SessionFcmToken;
 
 DROP TABLE ChatRoom;
 

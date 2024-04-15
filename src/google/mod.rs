@@ -1,15 +1,15 @@
 mod youtube;
 
 use axum::{routing, Router};
-use diesel::{pg::Pg, ExpressionMethods};
-use diesel_async::{AsyncConnection, RunQueryDsl};
+use diesel::pg::Pg;
+use diesel_async::AsyncConnection;
 use oauth2::{AccessToken, ExtraTokenFields, RefreshToken};
 use time::PrimitiveDateTime;
 
 use crate::{
-    models::{GoogleAccount, User},
+    db::{GoogleAccount, User},
     utils::oauth::OAuthAccountHelper,
-    AppState, Error,
+    Error,
 };
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -93,35 +93,21 @@ impl OAuthAccountHelper for GoogleSession {
         user: User,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> Result<(), Error> {
-        use crate::schema::googleaccount::dsl as dsl_ga;
-
-        diesel::insert_into(dsl_ga::googleaccount)
-            .values(GoogleAccount {
-                sub: self.sub.clone(),
-                email: self.email.clone(),
-                access_token: self.access_token.secret().clone(),
-                expires_at: self.expires_at,
-                refresh_token: self.refresh_token.secret().clone(),
-                user_id: user.id,
-            })
-            .on_conflict(dsl_ga::sub)
-            .do_update()
-            .set((
-                dsl_ga::email.eq(self.email.clone()),
-                dsl_ga::access_token.eq(self.access_token.secret()),
-                dsl_ga::expires_at.eq(&self.expires_at),
-                dsl_ga::refresh_token.eq(self.refresh_token.secret()),
-                dsl_ga::user_id.eq(&user.id),
-            ))
-            .execute(conn)
-            .await?;
-
-        Ok(())
+        GoogleAccount {
+            sub: self.sub.clone(),
+            email: self.email.clone(),
+            access_token: self.access_token.secret().clone(),
+            expires_at: self.expires_at,
+            refresh_token: self.refresh_token.secret().clone(),
+            user_id: user.id,
+        }
+        .insert_or_update(conn)
+        .await
     }
 }
 
-pub fn router() -> Router<AppState> {
+pub fn router() -> Router<crate::state::AppState> {
     Router::new()
         .route("/login", routing::post(GoogleSession::login))
-        .route("/channel/list", routing::get(youtube::Channel::list))
+        .route("/youtube/channel", routing::get(youtube::Channel::list))
 }

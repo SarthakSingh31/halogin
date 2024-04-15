@@ -1,12 +1,10 @@
 // @generated automatically by Diesel CLI.
 
-pub mod sql_types {
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "contractofferstatus"))]
-    pub struct Contractofferstatus;
-}
-
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
     chatcontractoffer (id) {
         id -> Int8,
         message_id -> Int8,
@@ -16,7 +14,8 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::Contractofferstatus;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
 
     chatcontractofferupdate (id) {
         id -> Int8,
@@ -27,6 +26,10 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
     chatlastseen (room_id, user_id) {
         room_id -> Uuid,
         user_id -> Uuid,
@@ -35,6 +38,10 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
     chatmessage (id) {
         id -> Int8,
         room_id -> Uuid,
@@ -45,6 +52,10 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
     chatroom (id) {
         id -> Uuid,
         company_id -> Uuid,
@@ -53,6 +64,10 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
     company (id) {
         id -> Uuid,
         full_name -> Text,
@@ -64,6 +79,10 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
     companyuser (company_id, user_id) {
         company_id -> Uuid,
         user_id -> Uuid,
@@ -72,6 +91,28 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
+    creatordata (user_id) {
+        user_id -> Uuid,
+        given_name -> Text,
+        family_name -> Text,
+        pronouns -> Text,
+        profile_desc -> Text,
+        content_desc -> Text,
+        audience_desc -> Text,
+        pfp_path -> Nullable<Text>,
+        embedding -> Vector,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
     googleaccount (sub) {
         sub -> Text,
         email -> Text,
@@ -83,6 +124,10 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
     inneruser (id) {
         id -> Uuid,
         created_at -> Timestamp,
@@ -90,15 +135,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    inneruserdata (id) {
-        id -> Uuid,
-        given_name -> Text,
-        family_name -> Text,
-        banner_desc -> Text,
-    }
-}
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
 
-diesel::table! {
     innerusersession (token) {
         token -> Text,
         expires_at -> Timestamp,
@@ -107,6 +147,10 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
     sessionfcmtoken (token) {
         token -> Text,
         session_token -> Text,
@@ -114,6 +158,10 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
     twitchaccount (id) {
         id -> Text,
         access_token -> Text,
@@ -135,8 +183,8 @@ diesel::joinable!(chatroom -> company (company_id));
 diesel::joinable!(chatroom -> inneruser (user_id));
 diesel::joinable!(companyuser -> company (company_id));
 diesel::joinable!(companyuser -> inneruser (user_id));
+diesel::joinable!(creatordata -> inneruser (user_id));
 diesel::joinable!(googleaccount -> inneruser (user_id));
-diesel::joinable!(inneruserdata -> inneruser (id));
 diesel::joinable!(innerusersession -> inneruser (user_id));
 diesel::joinable!(sessionfcmtoken -> innerusersession (session_token));
 diesel::joinable!(twitchaccount -> inneruser (user_id));
@@ -149,9 +197,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     chatroom,
     company,
     companyuser,
+    creatordata,
     googleaccount,
     inneruser,
-    inneruserdata,
     innerusersession,
     sessionfcmtoken,
     twitchaccount,

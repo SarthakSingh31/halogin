@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
+    import { wsRpc } from "$lib/ws";
 
     let users = [
         { name: "basit", id: 1 },
@@ -24,6 +25,7 @@
     let ws: WebSocket | null = null;
 
     onMount(() => {
+        wsRpc.call("chat.list_rooms", {}, (resp) => console.log(resp));
         ws = new WebSocket("ws://localhost:8080"); // Have to replace the  URL with actual server address.
         // currently getting 500 internal error..
         ws.onopen = () => {

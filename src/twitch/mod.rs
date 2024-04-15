@@ -1,13 +1,13 @@
 use axum::{routing, Router};
-use diesel::{pg::Pg, ExpressionMethods};
-use diesel_async::{AsyncConnection, RunQueryDsl};
+use diesel::pg::Pg;
+use diesel_async::AsyncConnection;
 use oauth2::{AccessToken, ExtraTokenFields, RefreshToken};
 use time::PrimitiveDateTime;
 
 use crate::{
-    models::{TwitchAccount, User},
+    db::{TwitchAccount, User},
     utils::oauth::OAuthAccountHelper,
-    AppState, Error,
+    Error,
 };
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -83,30 +83,18 @@ impl OAuthAccountHelper for TwitchSession {
         user: User,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> Result<(), Error> {
-        use crate::schema::twitchaccount::dsl as dsl_ta;
-
-        diesel::insert_into(dsl_ta::twitchaccount)
-            .values(TwitchAccount {
-                id: self.id.clone(),
-                access_token: self.access_token.secret().clone(),
-                expires_at: self.expires_at,
-                refresh_token: self.refresh_token.secret().clone(),
-                user_id: user.id,
-            })
-            .on_conflict(dsl_ta::id)
-            .do_update()
-            .set((
-                dsl_ta::access_token.eq(self.access_token.secret()),
-                dsl_ta::expires_at.eq(&self.expires_at),
-                dsl_ta::refresh_token.eq(self.refresh_token.secret()),
-                dsl_ta::user_id.eq(user.id),
-            ))
-            .execute(conn)
-            .await?;
-
-        Ok(())
+        TwitchAccount {
+            id: self.id.clone(),
+            access_token: self.access_token.secret().clone(),
+            expires_at: self.expires_at,
+            refresh_token: self.refresh_token.secret().clone(),
+            user_id: user.id,
+        }
+        .insert_or_update(conn)
+        .await
     }
 }
-pub fn router() -> Router<AppState> {
+
+pub fn router() -> Router<crate::state::AppState> {
     Router::new().route("/login", routing::post(TwitchSession::login))
 }

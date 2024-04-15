@@ -1,5 +1,7 @@
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 CREATE TABLE Company (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     full_name TEXT NOT NULL,
     banner_desc TEXT NOT NULL,
     logo_url TEXT NOT NULL,
@@ -17,17 +19,17 @@ CREATE TABLE CompanyUser (
 );
 
 CREATE TABLE ChatRoom (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     company_id UUID NOT NULL,
     user_id UUID NOT NULL,
     CONSTRAINT fk_company FOREIGN KEY (company_id) REFERENCES Company(id) ON DELETE CASCADE,
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
 );
 
-CREATE TABLE UserFcmToken (
+CREATE TABLE SessionFcmToken (
     token TEXT PRIMARY KEY,
-    user_id UUID NOT NULL,
-    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
+    session_token TEXT NOT NULL,
+    CONSTRAINT fk_session FOREIGN KEY (session_token) REFERENCES InnerUserSession(token) ON DELETE CASCADE
 );
 
 CREATE TABLE ChatMessage (
@@ -57,7 +59,7 @@ CREATE TABLE ChatContractOffer (
     CONSTRAINT fk_message FOREIGN KEY (message_id) REFERENCES ChatMessage(id) ON DELETE CASCADE
 );
 
-CREATE TYPE ContractStatus AS ENUM (
+CREATE TYPE ContractOfferStatus AS ENUM (
     'AcceptedByCreator',
     'WithdrawnByCompany',
     'CancelledByCreator',
@@ -65,21 +67,21 @@ CREATE TYPE ContractStatus AS ENUM (
     'ApprovedByCompany'
 );
 
-CREATE TABLE ChatContractUpdate (
+CREATE TABLE ChatContractOfferUpdate (
     id BIGSERIAL PRIMARY KEY,
     message_id BIGSERIAL NOT NULL,
     offer_id BIGSERIAL NOT NULL,
-    update_kind ContractStatus NOT NULL,
+    update_kind ContractOfferStatus NOT NULL,
     CONSTRAINT fk_message FOREIGN KEY (message_id) REFERENCES ChatMessage(id) ON DELETE CASCADE,
     CONSTRAINT fk_offer FOREIGN KEY (offer_id) REFERENCES ChatContractOffer(id) ON DELETE CASCADE
 );
 
-CREATE FUNCTION check_contract_update() RETURNS trigger LANGUAGE plpgsql STABLE AS
+CREATE FUNCTION check_contract_offer_update() RETURNS trigger LANGUAGE plpgsql STABLE AS
 $$
 DECLARE
     correct_transition BOOLEAN;
 BEGIN
-    SELECT CASE (SELECT update_kind FROM ChatContractUpdate WHERE offer_id = old.offer_id ORDER BY id DESC LIMIT 1)
+    SELECT CASE (SELECT update_kind FROM ChatContractOfferUpdate WHERE offer_id = old.offer_id ORDER BY id DESC LIMIT 1)
         WHEN 'AcceptedByCreator' THEN
             CASE new.update_kind
                 WHEN 'CancelledByCreator' THEN 'true'::BOOLEAN
@@ -105,4 +107,4 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER contract_update_checker BEFORE INSERT ON ChatContractUpdate FOR EACH ROW EXECUTE PROCEDURE check_contract_update();
+CREATE TRIGGER contract_offer_update_checker BEFORE INSERT ON ChatContractOfferUpdate FOR EACH ROW EXECUTE PROCEDURE check_contract_offer_update();
