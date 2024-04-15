@@ -1,5 +1,4 @@
 use axum::{
-    extract::State,
     http::{header::SET_COOKIE, HeaderName, StatusCode},
     Json,
 };
@@ -17,8 +16,9 @@ use oauth2::{
 use time::{OffsetDateTime, PrimitiveDateTime};
 
 use crate::{
-    models::{User, UserSession},
-    AppState, Error,
+    db::{User, UserSession},
+    state::DbConn,
+    Error,
 };
 
 #[derive(serde::Deserialize)]
@@ -53,7 +53,6 @@ pub trait OAuthAccountHelper: Sized {
         let client = Client::<
             BasicErrorResponse,
             StandardTokenResponse<Self::ExtraFields, BasicTokenType>,
-            BasicTokenType,
             BasicTokenIntrospectionResponse,
             StandardRevocableToken,
             BasicRevocationErrorResponse,
@@ -101,7 +100,6 @@ pub trait OAuthAccountHelper: Sized {
         let client = Client::<
             BasicErrorResponse,
             StandardTokenResponse<Self::ExtraFields, BasicTokenType>,
-            BasicTokenType,
             BasicTokenIntrospectionResponse,
             StandardRevocableToken,
             BasicRevocationErrorResponse,
@@ -128,10 +126,7 @@ pub trait OAuthAccountHelper: Sized {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
                 error: "Failed to get an expiry time for the given code".to_string(),
             })?;
-        let refresh_token = resp.refresh_token().cloned().ok_or(Error::Custom {
-            status_code: StatusCode::INTERNAL_SERVER_ERROR,
-            error: "Could not get a refresh token for the given code".to_string(),
-        })?;
+        let refresh_token = resp.refresh_token().cloned().unwrap_or(refresh_token);
 
         Ok(Self::new(
             resp.access_token().clone(),
@@ -143,11 +138,10 @@ pub trait OAuthAccountHelper: Sized {
 
     async fn login(
         user: Option<User>,
-        State(state): State<AppState>,
+        DbConn { mut conn }: DbConn,
         Json(login_params): Json<LoginParams>,
     ) -> Result<Either<(), [(HeaderName, String); 1]>, Error> {
         let session = Self::from_code(login_params.redirect_origin, login_params.code).await?;
-        let mut conn = state.pool.get().await?;
 
         let resp = if let Some(user) = user {
             session.insert_or_update_for_user(user, &mut conn).await?;

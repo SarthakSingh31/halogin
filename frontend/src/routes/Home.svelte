@@ -1,5 +1,13 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { wsRpc } from "$lib/ws";
+
   // Add TypeScript logic if needed
+  onMount(() => {
+    wsRpc.call("chat.list_rooms", {}, (resp) =>
+      console.log("Response: ", resp),
+    );
+  });
 </script>
 
 <section

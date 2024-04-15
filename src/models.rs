@@ -1,10 +1,5 @@
 use std::io::Write;
 
-use axum::{
-    async_trait,
-    extract::FromRequestParts,
-    http::{header::COOKIE, request::Parts},
-};
 use diesel::{
     data_types::Cents,
     deserialize::{self, FromSql, FromSqlRow},
@@ -14,70 +9,10 @@ use diesel::{
     AsExpression,
 };
 use diesel_async::{AsyncConnection, RunQueryDsl};
-use oauth2::RefreshToken;
-use rand::Rng;
-use time::{Duration, OffsetDateTime, PrimitiveDateTime};
+use time::PrimitiveDateTime;
 use uuid::Uuid;
 
-use crate::{google::GoogleSession, utils::oauth::OAuthAccountHelper, Error, SESSION_COOKIE_NAME};
-use crate::{twitch::TwitchSession, AppState};
-const BUFFER_TIME: Duration = Duration::seconds(1);
-
-#[derive(Clone, Copy, Insertable, Queryable)]
-#[diesel(table_name = crate::schema::inneruser)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct User {
-    pub id: Uuid,
-}
-
-impl User {
-    pub async fn new(conn: &mut impl AsyncConnection<Backend = Pg>) -> Result<Self, Error> {
-        let user = User { id: Uuid::new_v4() };
-
-        use crate::schema::inneruser::dsl as dsl_iu;
-
-        diesel::insert_into(dsl_iu::inneruser)
-            .values(user)
-            .execute(conn)
-            .await?;
-
-        Ok(user)
-    }
-}
-
-#[async_trait]
-impl FromRequestParts<AppState> for User {
-    type Rejection = Error;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        if let Some(cookies) = parts.headers.get(COOKIE) {
-            let parts = cookies.as_bytes().split(|c| *c == b';');
-            for part in parts {
-                if let Ok(part) = std::str::from_utf8(part) {
-                    let part = part.trim();
-
-                    if let Some((name, value)) = part.split_once('=') {
-                        if name == SESSION_COOKIE_NAME {
-                            let mut conn = state.get_conn().await?;
-
-                            // We ignore the session cookie if we cannot find a session associated with it
-                            if let Some(user) =
-                                UserSession::get_user_by_token(value, &mut conn).await?
-                            {
-                                return Ok(user);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Err(Error::Unauthorized)
-    }
-}
+use crate::{db::User, Error};
 
 #[derive(Insertable, Queryable)]
 #[diesel(table_name = crate::schema::inneruserdata)]
@@ -110,243 +45,15 @@ impl UserData {
     }
 }
 
-#[derive(Clone, Insertable, Queryable)]
-#[diesel(table_name = crate::schema::innerusersession)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct UserSession {
-    pub token: String,
-    pub expires_at: PrimitiveDateTime,
-    pub user_id: Uuid,
-}
-
-impl UserSession {
-    pub async fn new_for_user(
-        user: User,
-        expires_at: PrimitiveDateTime,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<Self, Error> {
-        let token = rand::thread_rng()
-            .sample_iter(&rand::distributions::Alphanumeric)
-            .take(256)
-            .map(char::from)
-            .collect();
-        let session = UserSession {
-            token,
-            expires_at,
-            user_id: user.id,
-        };
-
-        diesel::insert_into(crate::schema::innerusersession::dsl::innerusersession)
-            .values(session.clone())
-            .execute(conn)
-            .await?;
-
-        Ok(session)
-    }
-
-    pub async fn get_user_by_token(
-        token: &str,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<Option<User>, Error> {
-        use crate::schema::innerusersession::dsl as dsl_ius;
-
-        let now = OffsetDateTime::now_utc();
-        let now = PrimitiveDateTime::new(now.date(), now.time());
-
-        let user = dsl_ius::innerusersession
-            .select((dsl_ius::user_id,))
-            .filter(dsl_ius::token.eq(token))
-            .filter(dsl_ius::expires_at.gt(now))
-            .first(conn)
-            .await
-            .optional()?;
-
-        Ok(user)
-    }
-
-    pub async fn prune_expired(conn: &mut impl AsyncConnection<Backend = Pg>) -> Result<(), Error> {
-        let now = OffsetDateTime::now_utc();
-        let now = PrimitiveDateTime::new(now.date(), now.time());
-
-        use crate::schema::innerusersession::dsl as dsl_ius;
-
-        diesel::delete(dsl_ius::innerusersession)
-            .filter(dsl_ius::expires_at.lt(now))
-            .execute(conn)
-            .await?;
-
-        Ok(())
-    }
-}
-
 #[derive(Insertable, Queryable)]
-#[diesel(table_name = crate::schema::twitchaccount)]
+#[diesel(table_name = crate::schema::company)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct TwitchAccount {
-    pub id: String,
-    pub access_token: String,
-    pub expires_at: PrimitiveDateTime,
-    pub refresh_token: String,
-    pub user_id: Uuid,
-}
-
-impl TwitchAccount {
-    pub fn meta(&self) -> TwitchAccountMeta {
-        TwitchAccountMeta {
-            id: self.id.clone(),
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TwitchAccountMeta {
-    pub id: String,
-}
-
-#[derive(Clone, Insertable, Queryable, AsChangeset)]
-#[diesel(table_name = crate::schema::googleaccount)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct GoogleAccount {
-    pub sub: String,
-    pub email: String,
-    pub access_token: String,
-    pub expires_at: PrimitiveDateTime,
-    pub refresh_token: String,
-    pub user_id: Uuid,
-}
-
-impl GoogleAccount {
-    pub async fn from_sub(
-        sub: &str,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<Option<Self>, Error> {
-        use crate::schema::googleaccount::dsl as dsl_ga;
-
-        let user = dsl_ga::googleaccount
-            .filter(dsl_ga::sub.eq(sub))
-            .first(conn)
-            .await
-            .optional()?;
-
-        Ok(user)
-    }
-
-    pub async fn list(
-        user: User,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<Vec<Self>, Error> {
-        use crate::schema::googleaccount::dsl as dsl_ga;
-
-        let accounts = dsl_ga::googleaccount
-            .filter(dsl_ga::user_id.eq(user.id))
-            .load(conn)
-            .await?;
-
-        Ok(accounts)
-    }
-
-    pub fn meta(&self) -> GoogleAccountMeta {
-        GoogleAccountMeta {
-            sub: self.sub.clone(),
-            email: self.email.clone(),
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GoogleAccountMeta {
-    pub sub: String,
-    pub email: String,
-}
-
-pub trait AuthenticationHeader {
-    type Session: OAuthAccountHelper;
-
-    fn access_token(&self) -> &str;
-    fn expires_at(&self) -> PrimitiveDateTime;
-    fn refresh_token(&self) -> String;
-    fn user(&self) -> User;
-    fn update(&mut self, session: Self::Session);
-
-    async fn authentication_header(
-        &mut self,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<reqwest::header::HeaderMap, Error> {
-        let now = OffsetDateTime::now_utc();
-        if (PrimitiveDateTime::new(now.date(), now.time()) + BUFFER_TIME) > self.expires_at() {
-            let session = Self::Session::renew(RefreshToken::new(self.refresh_token())).await?;
-
-            session.insert_or_update_for_user(self.user(), conn).await?;
-
-            self.update(session);
-        }
-
-        let mut map = reqwest::header::HeaderMap::new();
-        map.insert(
-            reqwest::header::AUTHORIZATION,
-            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.access_token()))
-                .expect("Failed to make the bearer token header value"),
-        );
-
-        Ok(map)
-    }
-}
-
-impl AuthenticationHeader for GoogleAccount {
-    type Session = GoogleSession;
-
-    fn access_token(&self) -> &str {
-        &self.access_token
-    }
-
-    fn expires_at(&self) -> PrimitiveDateTime {
-        self.expires_at
-    }
-
-    fn refresh_token(&self) -> String {
-        self.refresh_token.clone()
-    }
-
-    fn user(&self) -> User {
-        User { id: self.user_id }
-    }
-
-    fn update(&mut self, session: Self::Session) {
-        self.access_token = session.access_token();
-        self.expires_at = session.expires_at();
-        self.refresh_token = session.refresh_token();
-        self.email = session.email();
-        // session.sub does not change so we don't need to update it
-    }
-}
-
-impl AuthenticationHeader for TwitchAccount {
-    type Session = TwitchSession;
-
-    fn access_token(&self) -> &str {
-        &self.access_token
-    }
-
-    fn expires_at(&self) -> PrimitiveDateTime {
-        self.expires_at
-    }
-
-    fn refresh_token(&self) -> String {
-        self.refresh_token.clone()
-    }
-
-    fn user(&self) -> User {
-        User { id: self.user_id }
-    }
-
-    fn update(&mut self, session: Self::Session) {
-        self.access_token = session.access_token();
-        self.expires_at = session.expires_at();
-        self.refresh_token = session.refresh_token();
-        // session.id does not change so we don't need to update it
-    }
+pub struct Company<'c> {
+    pub id: Uuid,
+    pub full_name: &'c str,
+    pub banner_desc: &'c str,
+    pub logo_url: &'c str,
+    pub industry: &'c [Option<&'c str>],
 }
 
 #[derive(
@@ -360,8 +67,8 @@ impl AuthenticationHeader for TwitchAccount {
     serde::Serialize,
     serde::Deserialize,
 )]
-#[diesel(sql_type = crate::schema::sql_types::Contractstatus)]
-pub enum ContractStatus {
+#[diesel(sql_type = crate::schema::sql_types::Contractofferstatus)]
+pub enum ContractOfferStatus {
     AcceptedByCreator,
     WithdrawnByCompany,
     CancelledByCreator,
@@ -369,27 +76,27 @@ pub enum ContractStatus {
     ApprovedByCompany,
 }
 
-impl ToSql<crate::schema::sql_types::Contractstatus, Pg> for ContractStatus {
+impl ToSql<crate::schema::sql_types::Contractofferstatus, Pg> for ContractOfferStatus {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
         match *self {
-            ContractStatus::AcceptedByCreator => out.write_all(b"AcceptedByCreator")?,
-            ContractStatus::WithdrawnByCompany => out.write_all(b"WithdrawnByCompany")?,
-            ContractStatus::CancelledByCreator => out.write_all(b"CancelledByCreator")?,
-            ContractStatus::FinishedByCreator => out.write_all(b"FinishedByCreator")?,
-            ContractStatus::ApprovedByCompany => out.write_all(b"ApprovedByCompany")?,
+            ContractOfferStatus::AcceptedByCreator => out.write_all(b"AcceptedByCreator")?,
+            ContractOfferStatus::WithdrawnByCompany => out.write_all(b"WithdrawnByCompany")?,
+            ContractOfferStatus::CancelledByCreator => out.write_all(b"CancelledByCreator")?,
+            ContractOfferStatus::FinishedByCreator => out.write_all(b"FinishedByCreator")?,
+            ContractOfferStatus::ApprovedByCompany => out.write_all(b"ApprovedByCompany")?,
         }
         Ok(IsNull::No)
     }
 }
 
-impl FromSql<crate::schema::sql_types::Contractstatus, Pg> for ContractStatus {
+impl FromSql<crate::schema::sql_types::Contractofferstatus, Pg> for ContractOfferStatus {
     fn from_sql(bytes: PgValue<'_>) -> deserialize::Result<Self> {
         match bytes.as_bytes() {
-            b"AcceptedByCreator" => Ok(ContractStatus::AcceptedByCreator),
-            b"WithdrawnByCompany" => Ok(ContractStatus::WithdrawnByCompany),
-            b"CancelledByCreator" => Ok(ContractStatus::CancelledByCreator),
-            b"FinishedByCreator" => Ok(ContractStatus::FinishedByCreator),
-            b"ApprovedByCompany" => Ok(ContractStatus::ApprovedByCompany),
+            b"AcceptedByCreator" => Ok(ContractOfferStatus::AcceptedByCreator),
+            b"WithdrawnByCompany" => Ok(ContractOfferStatus::WithdrawnByCompany),
+            b"CancelledByCreator" => Ok(ContractOfferStatus::CancelledByCreator),
+            b"FinishedByCreator" => Ok(ContractOfferStatus::FinishedByCreator),
+            b"ApprovedByCompany" => Ok(ContractOfferStatus::ApprovedByCompany),
             _ => Err("Unrecognized enum variant".into()),
         }
     }
@@ -422,7 +129,7 @@ impl CompanyUser {
         use crate::schema::company::dsl as dsl_c;
 
         for company_id in company_ids {
-            let (name, logo) = dsl_c::company
+            let (name, logo_url) = dsl_c::company
                 .filter(dsl_c::id.eq(company_id))
                 .select((dsl_c::full_name, dsl_c::logo_url))
                 .first::<(String, String)>(conn)
@@ -430,7 +137,7 @@ impl CompanyUser {
             companies.push(CompanyInfo {
                 id: company_id,
                 name,
-                logo,
+                logo_url,
             });
         }
 
@@ -454,21 +161,21 @@ impl CompanyUser {
 }
 
 #[derive(Clone, Insertable, Queryable, AsChangeset)]
-#[diesel(table_name = crate::schema::userfcmtoken)]
+#[diesel(table_name = crate::schema::sessionfcmtoken)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct UserFcmToken {
+pub struct SessionFcmToken {
     pub token: String,
-    pub user_id: Uuid,
+    pub session_token: String,
 }
 
-impl UserFcmToken {
+impl SessionFcmToken {
     pub async fn delete(
         token: &str,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> Result<(), Error> {
-        use crate::schema::userfcmtoken::dsl as dsl_uft;
+        use crate::schema::sessionfcmtoken::dsl as dsl_uft;
 
-        diesel::delete(dsl_uft::userfcmtoken)
+        diesel::delete(dsl_uft::sessionfcmtoken)
             .filter(dsl_uft::token.eq(token))
             .execute(conn)
             .await?;
@@ -477,7 +184,7 @@ impl UserFcmToken {
     }
 }
 
-#[derive(Clone, Insertable, Queryable, AsChangeset)]
+#[derive(Clone, Insertable, Queryable, AsChangeset, Selectable, serde::Serialize)]
 #[diesel(table_name = crate::schema::chatroom)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ChatRoom {
@@ -526,13 +233,13 @@ impl ChatRoom {
     pub async fn list(
         user_id: Uuid,
         conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<Vec<Uuid>, Error> {
+    ) -> Result<Vec<Self>, Error> {
         use crate::schema::chatroom::dsl as dsl_cr;
 
         let rooms = dsl_cr::chatroom
             .filter(dsl_cr::user_id.eq(user_id))
-            .select(dsl_cr::id)
-            .load::<Uuid>(conn)
+            .select(Self::as_select())
+            .load::<Self>(conn)
             .await?;
 
         Ok(rooms)
@@ -543,7 +250,7 @@ impl ChatRoom {
 pub struct CompanyInfo {
     pub id: Uuid,
     pub name: String,
-    pub logo: String,
+    pub logo_url: String,
 }
 
 #[derive(serde::Serialize)]
@@ -605,7 +312,7 @@ impl Message {
         let mut messages = Vec::with_capacity(db_messages.len());
 
         use crate::schema::chatcontractoffer::dsl as dsl_cco;
-        use crate::schema::chatcontractupdate::dsl as dsl_ccu;
+        use crate::schema::chatcontractofferupdate::dsl as dsl_ccou;
 
         for db_message in db_messages {
             let mut extra = None;
@@ -618,20 +325,20 @@ impl Message {
                 .optional()?;
 
             if let Some((offer_id, payout)) = contract_offer {
-                extra = Some(MessageExtra::ContractCreated {
+                extra = Some(MessageExtra::ContractOfferCreated {
                     offer_id,
                     payout: payout.0,
                 });
             } else {
-                let contract_update = dsl_ccu::chatcontractupdate
-                    .filter(dsl_ccu::message_id.eq(db_message.id))
-                    .select((dsl_ccu::offer_id, dsl_ccu::update_kind))
-                    .first::<(i64, ContractStatus)>(conn)
+                let contract_update = dsl_ccou::chatcontractofferupdate
+                    .filter(dsl_ccou::message_id.eq(db_message.id))
+                    .select((dsl_ccou::offer_id, dsl_ccou::update_kind))
+                    .first::<(i64, ContractOfferStatus)>(conn)
                     .await
                     .optional()?;
 
                 if let Some((offer_id, new_status)) = contract_update {
-                    extra = Some(MessageExtra::ContractStatusChange {
+                    extra = Some(MessageExtra::ContractOfferStatusChange {
                         offer_id,
                         new_status,
                     });
@@ -653,13 +360,13 @@ impl Message {
 
 #[derive(serde::Serialize)]
 pub enum MessageExtra {
-    ContractCreated {
+    ContractOfferCreated {
         offer_id: i64,
         payout: i64,
     },
-    ContractStatusChange {
+    ContractOfferStatusChange {
         offer_id: i64,
-        new_status: ContractStatus,
+        new_status: ContractOfferStatus,
     },
 }
 

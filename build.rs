@@ -15,7 +15,17 @@ fn main() -> Result<(), io::Error> {
         .current_dir("./frontend")
         .output()?;
 
-    assert!(output.status.success());
+    let Ok(stdout) = std::str::from_utf8(&output.stdout) else {
+        panic!("Failed to format stdout");
+    };
+    let Ok(stderr) = std::str::from_utf8(&output.stderr) else {
+        panic!("Failed to format stderr");
+    };
+
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
 
     Ok(())
 }

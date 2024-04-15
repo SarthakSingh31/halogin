@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
-use axum::{extract::State, Json};
+use axum::Json;
 use serde::Deserialize;
 
 use crate::{
-    models::{AuthenticationHeader, GoogleAccount, GoogleAccountMeta, User},
-    AppState, Error,
+    db::{GoogleAccount, GoogleAccountMeta, User},
+    state::DbConn,
+    utils::AuthenticationHeader,
+    Error,
 };
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -18,9 +20,7 @@ pub struct Channel {
 }
 
 impl Channel {
-    pub async fn list(user: User, State(state): State<AppState>) -> Result<Json<Vec<Self>>, Error> {
-        let mut conn = state.get_conn().await?;
-
+    pub async fn list(user: User, DbConn { mut conn }: DbConn) -> Result<Json<Vec<Self>>, Error> {
         #[derive(serde::Serialize, serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct ResponseChannel {
