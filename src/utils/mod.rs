@@ -1,18 +1,14 @@
 use std::convert::Infallible;
 use std::task::{Context, Poll};
 
+use crate::{db::User, Error};
 use axum::body::Bytes;
 use axum::http::{Request, Response};
 use diesel::pg::Pg;
 use diesel_async::AsyncConnection;
-use futures::Future;
-use http_body::Body;
-use oauth2::RefreshToken;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use tower::Service;
 use tower_http::services::ServeDir;
-
-use crate::{db::User, Error};
 
 pub mod oauth;
 
@@ -32,11 +28,12 @@ pub trait AuthenticationHeader {
     fn authentication_header(
         &mut self,
         conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> impl Future<Output = Result<reqwest::header::HeaderMap, Error>> {
+    ) -> impl futures::Future<Output = Result<reqwest::header::HeaderMap, Error>> {
         async move {
             let now = OffsetDateTime::now_utc();
             if (PrimitiveDateTime::new(now.date(), now.time()) + BUFFER_TIME) > self.expires_at() {
-                let session = Self::Session::renew(RefreshToken::new(self.refresh_token())).await?;
+                let session =
+                    Self::Session::renew(oauth2::RefreshToken::new(self.refresh_token())).await?;
 
                 session.insert_or_update_for_user(self.user(), conn).await?;
 
@@ -63,7 +60,7 @@ impl<ReqBody, F, FResBody> Service<Request<ReqBody>> for AddHtmlExtService<F>
 where
     F: Service<Request<ReqBody>, Response = Response<FResBody>, Error = Infallible> + Clone,
     F::Future: Send + 'static,
-    FResBody: Body<Data = Bytes> + Send + 'static,
+    FResBody: http_body::Body<Data = Bytes> + Send + 'static,
     FResBody::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     type Response = <ServeDir<F> as Service<Request<ReqBody>>>::Response;
@@ -88,5 +85,24 @@ where
         }
 
         self.0.call(req)
+    }
+}
+
+pub fn deserialize_usize_from_string<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum StringOrUsize {
+        String(String),
+        Number(usize),
+    }
+
+    use serde::Deserialize;
+
+    match StringOrUsize::deserialize(deserializer)? {
+        StringOrUsize::String(s) => s.parse().map_err(serde::de::Error::custom),
+        StringOrUsize::Number(i) => Ok(i),
     }
 }

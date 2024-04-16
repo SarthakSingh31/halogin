@@ -1,4 +1,4 @@
-use axum::{routing, Router};
+use axum::{routing, Json, Router};
 use diesel::pg::Pg;
 use diesel_async::AsyncConnection;
 use oauth2::{AccessToken, ExtraTokenFields, RefreshToken};
@@ -6,7 +6,8 @@ use time::PrimitiveDateTime;
 
 use crate::{
     db::{TwitchAccount, User},
-    utils::oauth::OAuthAccountHelper,
+    state::DbConn,
+    utils::{oauth::OAuthAccountHelper, AuthenticationHeader},
     Error,
 };
 
@@ -96,5 +97,87 @@ impl OAuthAccountHelper for TwitchSession {
 }
 
 pub fn router() -> Router<crate::state::AppState> {
-    Router::new().route("/login", routing::post(TwitchSession::login))
+    Router::new()
+        .route("/login", routing::post(TwitchSession::login))
+        .route("/account", routing::get(get_twitch_accounts))
+}
+
+#[derive(serde::Serialize)]
+struct Account {
+    id: usize,
+    display_name: String,
+    profile_image_url: String,
+    follower_count: usize,
+    subscriber_count: usize,
+}
+
+async fn get_twitch_accounts(
+    user: User,
+    DbConn { mut conn }: DbConn,
+) -> Result<Json<Vec<Account>>, Error> {
+    let mut accounts = Vec::default();
+
+    let client = reqwest::Client::new();
+    for mut account in TwitchAccount::list(user, &mut conn).await? {
+        #[derive(serde::Deserialize)]
+        struct UserResp {
+            data: Vec<UserData>,
+        }
+        #[derive(serde::Deserialize)]
+        struct UserData {
+            #[serde(deserialize_with = "crate::utils::deserialize_usize_from_string")]
+            id: usize,
+            display_name: String,
+            profile_image_url: String,
+        }
+        let user_req = client
+            .get(format!(
+                "https://api.twitch.tv/helix/users?id={}",
+                account.id
+            ))
+            .headers(account.authentication_header(&mut conn).await?)
+            .build()?;
+        let mut user_resp: UserResp = client.execute(user_req).await?.json().await?;
+
+        #[derive(serde::Deserialize)]
+        struct SubsriberResp {
+            total: usize,
+        }
+        let subscriber_req = client
+            .get(format!(
+                "https://api.twitch.tv/helix/subscriptions?broadcaster_id={}",
+                account.id
+            ))
+            .headers(account.authentication_header(&mut conn).await?)
+            .build()?;
+        let subscriber_resp: SubsriberResp = client.execute(subscriber_req).await?.json().await?;
+
+        #[derive(serde::Deserialize)]
+        struct FollowerResp {
+            total: usize,
+        }
+        let follower_req = client
+            .get(format!(
+                "https://api.twitch.tv/helix/channels/followers?broadcaster_id={}",
+                account.id
+            ))
+            .headers(account.authentication_header(&mut conn).await?)
+            .build()?;
+        let follower_resp: FollowerResp = client.execute(follower_req).await?.json().await?;
+
+        let user_resp = user_resp
+            .data
+            .pop()
+            .expect("Got no users in the user response");
+
+        accounts.push(Account {
+            id: user_resp.id,
+            display_name: user_resp.display_name,
+            profile_image_url: user_resp.profile_image_url,
+            follower_count: follower_resp.total,
+            subscriber_count: subscriber_resp.total,
+        });
+    }
+
+    Ok(Json(accounts))
 }
