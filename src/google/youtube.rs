@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use axum::Json;
-use serde::Deserialize;
 
 use crate::{
     db::{GoogleAccount, GoogleAccountMeta, User},
@@ -87,27 +86,10 @@ pub struct Thumbnail {
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelStatistics {
-    #[serde(deserialize_with = "deserialize_usize_from_string")]
+    #[serde(deserialize_with = "crate::utils::deserialize_usize_from_string")]
     pub view_count: usize,
-    #[serde(deserialize_with = "deserialize_usize_from_string")]
+    #[serde(deserialize_with = "crate::utils::deserialize_usize_from_string")]
     pub subscriber_count: usize,
-    #[serde(deserialize_with = "deserialize_usize_from_string")]
+    #[serde(deserialize_with = "crate::utils::deserialize_usize_from_string")]
     pub video_count: usize,
-}
-
-fn deserialize_usize_from_string<'de, D>(deserializer: D) -> Result<usize, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(serde::Deserialize)]
-    #[serde(untagged)]
-    enum StringOrUsize {
-        String(String),
-        Number(usize),
-    }
-
-    match StringOrUsize::deserialize(deserializer)? {
-        StringOrUsize::String(s) => s.parse().map_err(serde::de::Error::custom),
-        StringOrUsize::Number(i) => Ok(i),
-    }
 }
