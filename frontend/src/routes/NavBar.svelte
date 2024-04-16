@@ -33,10 +33,10 @@
                 <NavLi href="/" active={true}>Find Deals</NavLi>
             </div>
             <div class="nav-item">
-                <NavLi href="/about">Find Creators</NavLi>
+                <NavLi href="/">Find Creators</NavLi>
             </div>
             <div class="nav-item">
-                <NavLi href="/docs/components/navbar">About Us</NavLi>
+                <NavLi href="/">About Us</NavLi>
             </div>
             <div class="button-container">
                 <Button size="xl" color="green" class="nav-item">Log In</Button>
