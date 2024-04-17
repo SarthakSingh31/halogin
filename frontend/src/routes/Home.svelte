@@ -1,14 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { wsRpc } from "$lib/ws";
-  import { Button } from "flowbite-svelte";
-
-
-  onMount(() => {
-    wsRpc.call("chat.list_rooms", {}, (resp) =>
-      console.log("Response: ", resp),
-    );
-  });
 </script>
 
 <section class="bg-center bg-blend-multiply py-40 lg:py-60 color">
