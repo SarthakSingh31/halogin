@@ -1,5 +1,6 @@
 use axum::{
     http::{header::SET_COOKIE, HeaderName, StatusCode},
+    response::IntoResponse,
     Json,
 };
 use axum_extra::{either::Either, extract::cookie::Cookie};
@@ -20,6 +21,8 @@ use crate::{
     state::DbConn,
     Error,
 };
+
+use super::GetDetail;
 
 #[derive(serde::Deserialize)]
 pub struct LoginParams {
@@ -85,6 +88,8 @@ pub trait OAuthAccountHelper: Sized {
     const AUTH_TYPE: AuthType;
 
     type ExtraFields: ExtraTokenFields;
+    type Account;
+    type Response: serde::Serialize + GetDetail<Account = Self::Account>;
 
     fn new(
         access_token: AccessToken,
@@ -97,7 +102,7 @@ pub trait OAuthAccountHelper: Sized {
         &self,
         user: User,
         conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<(), Error>;
+    ) -> Result<Self::Account, Error>;
 
     async fn from_code(redirect_url: String, code: String) -> Result<Self, Error> {
         let client = Client::<
@@ -194,20 +199,25 @@ pub trait OAuthAccountHelper: Sized {
         user: Option<User>,
         DbConn { mut conn }: DbConn,
         Json(login_params): Json<LoginParams>,
-    ) -> Result<Either<(), [(HeaderName, String); 1]>, Error> {
+    ) -> Result<
+        Either<Json<Self::Response>, ([(HeaderName, String); 1], Json<Self::Response>)>,
+        Error,
+    > {
         let session = Self::from_code(login_params.redirect_origin, login_params.code).await?;
 
         let resp = if let Some(user) = user {
-            session.insert_or_update_for_user(user, &mut conn).await?;
+            let mut acct = session.insert_or_update_for_user(user, &mut conn).await?;
 
-            Either::E1(())
+            Either::E1(Json(
+                Self::Response::get(&mut acct, &reqwest::Client::new(), &mut conn).await?,
+            ))
         } else {
             let now = OffsetDateTime::now_utc();
             let expires_at =
                 PrimitiveDateTime::new(now.date(), now.time()) + crate::SESSION_COOKIE_DURATION;
 
             let user = User::new(&mut conn).await?;
-            session.insert_or_update_for_user(user, &mut conn).await?;
+            let mut acct = session.insert_or_update_for_user(user, &mut conn).await?;
 
             let session = UserSession::new_for_user(user, expires_at, &mut conn).await?;
 
@@ -224,7 +234,10 @@ pub trait OAuthAccountHelper: Sized {
             cookie.set_path("/");
             cookie.set_secure(true);
 
-            Either::E2([(SET_COOKIE, cookie.encoded().to_string())])
+            Either::E2((
+                [(SET_COOKIE, cookie.encoded().to_string())],
+                Json(Self::Response::get(&mut acct, &reqwest::Client::new(), &mut conn).await?),
+            ))
         };
 
         Ok(resp)

@@ -309,11 +309,11 @@ impl TwitchAccount {
     pub async fn insert_or_update(
         self,
         conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<(), Error> {
+    ) -> Result<Self, Error> {
         use schema::twitchaccount::dsl as ta_dsl;
 
         diesel::insert_into(ta_dsl::twitchaccount)
-            .values(self)
+            .values(&self)
             .on_conflict(ta_dsl::id)
             .do_update()
             .set((
@@ -325,7 +325,7 @@ impl TwitchAccount {
             .execute(conn)
             .await?;
 
-        Ok(())
+        Ok(self)
     }
 }
 
@@ -420,11 +420,11 @@ impl GoogleAccount {
     pub async fn insert_or_update(
         self,
         conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<(), Error> {
+    ) -> Result<Self, Error> {
         use schema::googleaccount::dsl as ga_dsl;
 
         diesel::insert_into(ga_dsl::googleaccount)
-            .values(self)
+            .values(&self)
             .on_conflict(ga_dsl::sub)
             .do_update()
             .set((
@@ -437,11 +437,11 @@ impl GoogleAccount {
             .execute(conn)
             .await?;
 
-        Ok(())
+        Ok(self)
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GoogleAccountMeta {
     pub sub: String,

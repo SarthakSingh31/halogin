@@ -8,7 +8,7 @@
         Button,
         Modal,
     } from "flowbite-svelte";
-    import StreamerLoginComponent from "./StreamerLoginComponent.svelte";
+    import CreatorLoginComponent from "./CreatorLoginComponent.svelte";
     import Logo from "../lib/logo.svg";
 
     let open = false;
@@ -22,8 +22,9 @@
             <img src={Logo} class="me-3 h-6 sm:h-9" alt="Flowbite Logo" />
             <span
                 class="self-center whitespace-nowrap text-xl font-semibold dark:text-white"
-                >Halogin</span
             >
+                Halogin
+            </span>
         </NavBrand>
         <NavHamburger />
         <NavUl>
@@ -52,7 +53,7 @@
             </div>
         </NavUl>
     </Navbar>
-    <Modal bind:open><StreamerLoginComponent /></Modal>
+    <Modal bind:open><CreatorLoginComponent /></Modal>
 </div>
 
 <style>
