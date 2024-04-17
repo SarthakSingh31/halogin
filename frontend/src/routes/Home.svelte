@@ -1,4 +1,14 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { wsRpc } from "$lib/ws";
+  import { Button } from "flowbite-svelte";
+
+
+  onMount(() => {
+    wsRpc.call("chat.list_rooms", {}, (resp) =>
+      console.log("Response: ", resp),
+    );
+  });
 </script>
 
 <section class="bg-center bg-blend-multiply py-40 lg:py-60 color">
@@ -11,27 +21,19 @@
           class="mb-4 text-4xl font-extrabold tracking-tight leading-none md:text-5xl lg:text-6xl text-left text-green-600"
         >
           Welcome to Halogin-
-          <br />
-          <span class="text-black"> Where Creators And Brands Connect!</span>
+          <h1 class="text-black"> Where Creators And Brands Connect!</h1>
         </h1>
         <p class="mb-8 text-lg font-normal text-gray-500 lg:text-xl text-left">
           Join our platform to connect with brands, maximize your streams, and
           unlock new opportunities in the world of content creation.
         </p>
       </div>
-      <div class="text-left">
-        <button
-          class="bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-8 rounded-lg"
-          >Get Started</button
-        >
+      <div class="text-left"> 
+        <button class="bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-8 rounded-lg">Get Started</button> 
       </div>
     </div>
     <div class="hidden lg:flex lg:flex-1 justify-center items-center">
-      <div
-        class="bg-gray-500 rounded-full w-96 h-96 flex justify-center items-center text-white text-4xl font-semibold"
-      >
-        Round Div
-      </div>
+      <div class="bg-gray-500 rounded-full w-96 h-96 flex justify-center items-center text-white text-4xl font-semibold">Round Div</div>
     </div>
   </div>
 </section>
@@ -43,15 +45,10 @@
         class="mb-4 text-4xl font-extrabold tracking-tight leading-none md:text-5xl lg:text-6xl text-left text-green-600"
       >
         Worlds Top Creators At
-        <br />
-        <span class="mt-4"> Your Fingertips</span>
+        <h2 class="mt-4"> Your Fingertips</h2>
       </h2>
-      <p class="mb-8 text-lg font-normal text-gray-500 lg:text-xl text-left">
-        Carlio brand is one of the most oil manufactureres, which is enaged in
-        the prodution of high quality products with a history of more than
-        decades in the industry. In order to get more information about other
-        aspects and products of the Carlio brand, you can use the following
-        buttons.
+      <p class="mb-8 text-lg font-normal text-gray-500 lg:text-xl text-left"> 
+        Carlio brand is one of the most oil manufactureres, which is enaged in the prodution of high quality products with a history of more than decades in the industry. In order to get more information about other aspects and products of the Carlio brand, you can use the following buttons.
       </p>
     </div>
   </div>
@@ -115,21 +112,15 @@
       <span class="text-xl">1</span>
     </div>
     <div class="h-px bg-green-600 flex-1"></div>
-    <div
-      class="w-20 h-20 flex items-center justify-center bg-green-600 text-white rounded-full"
-    >
+    <div class="w-20 h-20 flex items-center justify-center bg-green-600 text-white rounded-full">
       <span class="text-xl">2</span>
     </div>
     <div class="h-px bg-green-600 flex-1"></div>
-    <div
-      class="w-20 h-20 flex items-center justify-center bg-green-600 text-white rounded-full"
-    >
+    <div class="w-20 h-20 flex items-center justify-center bg-green-600 text-white rounded-full">
       <span class="text-xl">3</span>
     </div>
     <div class="h-px bg-green-600 flex-1"></div>
-    <div
-      class="w-20 h-20 flex items-center justify-center bg-green-600 text-white rounded-full"
-    >
+    <div class="w-20 h-20 flex items-center justify-center bg-green-600 text-white rounded-full">
       <span class="text-xl">4</span>
     </div>
   </div>
@@ -145,11 +136,11 @@
     </div>
     <div class="w-36 text-center mr-12">
       <div class="w-12 h-12 bg-gray-200 rounded-full mx-auto mb-4"></div>
-      <p>Create your portfolio</p>
+      <p>Start exploring opportunities</p>
     </div>
     <div class="w-36 text-center">
       <div class="w-12 h-12 bg-gray-200 rounded-full mx-auto mb-4"></div>
-      <p>Start exploring opportunities</p>
+      <p>Connect and Collaborate</p>
     </div>
   </div>
   <div class="color py-20"></div>
@@ -158,5 +149,17 @@
 <style>
   .color {
     background-color: #ecf0f3;
+  }
+
+  .bg-image {
+    background-image: url("../halogin.png");
+    background-size: contain;
+    background-repeat: no-repeat;
+    border: 4px solid gray;
+    mix-blend-mode: color-burn;
+    background-color: #f0f3ec;
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
   }
 </style>
