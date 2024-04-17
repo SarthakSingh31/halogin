@@ -1,12 +1,10 @@
 <script>
-    import { Navbar, NavBrand, NavLi, NavUl, NavHamburger, ImagePlaceholder, Skeleton, TextPlaceholder, Button } from 'flowbite-svelte';
+    import { Navbar, NavBrand, NavLi, NavUl, NavHamburger, Button } from 'flowbite-svelte';
     import Logo from "../lib/logo.svg";
 </script>
 
 <style>
-    .color{
-       background-color: #ecf0f3;
-    }
+   
     .nav-item {
         padding-top: 10px;
         padding-bottom: 10px; 
