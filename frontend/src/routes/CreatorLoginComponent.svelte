@@ -5,6 +5,10 @@
 
     let checked = false;
 
+    function gotoProfile() {
+        window.location.pathname = "creator/profile";
+    }
+
     const googleProvider = new GoogleOAuthProvider({
         clientId:
             "751704262503-61e56pavvl5d8l5fg6s62iejm8ft16ac.apps.googleusercontent.com",
@@ -27,7 +31,9 @@
                         code: authResult["code"],
                         keep_logged_in: checked,
                     }),
-                }).catch(console.error);
+                })
+                    .then(gotoProfile)
+                    .catch(console.error);
             } else {
                 console.error("No auth code recieved from google auth");
             }
@@ -63,7 +69,9 @@
                         code,
                         keep_logged_in: checked,
                     }),
-                }).catch(console.error);
+                })
+                    .then(gotoProfile)
+                    .catch(console.error);
             } else {
                 console.error("Wrong state on twitch login response");
             }

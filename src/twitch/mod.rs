@@ -7,7 +7,7 @@ use time::PrimitiveDateTime;
 use crate::{
     db::{TwitchAccount, User},
     state::DbConn,
-    utils::{oauth::OAuthAccountHelper, AuthenticationHeader},
+    utils::{oauth::OAuthAccountHelper, AuthenticationHeader, GetDetail},
     Error,
 };
 
@@ -41,6 +41,8 @@ impl OAuthAccountHelper for TwitchSession {
     const AUTH_TYPE: oauth2::AuthType = oauth2::AuthType::RequestBody;
 
     type ExtraFields = oauth2::EmptyExtraTokenFields;
+    type Account = TwitchAccount;
+    type Response = Account;
 
     async fn new(
         access_token: AccessToken,
@@ -81,7 +83,7 @@ impl OAuthAccountHelper for TwitchSession {
         &self,
         user: User,
         conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<(), Error> {
+    ) -> Result<Self::Account, Error> {
         TwitchAccount {
             id: self.id.clone(),
             access_token: self.access_token.secret().clone(),
@@ -101,7 +103,7 @@ pub fn router() -> Router<crate::state::AppState> {
 }
 
 #[derive(serde::Serialize)]
-struct Account {
+pub struct Account {
     id: usize,
     display_name: String,
     profile_image_url: String,
@@ -109,14 +111,14 @@ struct Account {
     subscriber_count: usize,
 }
 
-async fn get_twitch_accounts(
-    user: User,
-    DbConn { mut conn }: DbConn,
-) -> Result<Json<Vec<Account>>, Error> {
-    let mut accounts = Vec::default();
+impl GetDetail for Account {
+    type Account = TwitchAccount;
 
-    let client = reqwest::Client::new();
-    for mut account in TwitchAccount::list(user, &mut conn).await? {
+    async fn get<'g>(
+        account: &'g mut Self::Account,
+        client: &'g reqwest::Client,
+        conn: &'g mut (impl AsyncConnection<Backend = Pg> + 'static),
+    ) -> Result<Self, Error> {
         #[derive(serde::Deserialize)]
         struct UserResp {
             data: Vec<UserData>,
@@ -133,7 +135,7 @@ async fn get_twitch_accounts(
                 "https://api.twitch.tv/helix/users?id={}",
                 account.id
             ))
-            .headers(account.headers(&mut conn).await?)
+            .headers(account.headers(conn).await?)
             .build()?;
         let mut user_resp: UserResp = client.execute(user_req).await?.json().await?;
 
@@ -146,7 +148,7 @@ async fn get_twitch_accounts(
                 "https://api.twitch.tv/helix/subscriptions?broadcaster_id={}",
                 account.id
             ))
-            .headers(account.headers(&mut conn).await?)
+            .headers(account.headers(conn).await?)
             .build()?;
         let subscriber_resp: SubsriberResp = client.execute(subscriber_req).await?.json().await?;
 
@@ -159,7 +161,7 @@ async fn get_twitch_accounts(
                 "https://api.twitch.tv/helix/channels/followers?broadcaster_id={}",
                 account.id
             ))
-            .headers(account.headers(&mut conn).await?)
+            .headers(account.headers(conn).await?)
             .build()?;
         let follower_resp: FollowerResp = client.execute(follower_req).await?.json().await?;
 
@@ -168,13 +170,25 @@ async fn get_twitch_accounts(
             .pop()
             .expect("Got no users in the user response");
 
-        accounts.push(Account {
+        Ok(Account {
             id: user_resp.id,
             display_name: user_resp.display_name,
             profile_image_url: user_resp.profile_image_url,
             follower_count: follower_resp.total,
             subscriber_count: subscriber_resp.total,
-        });
+        })
+    }
+}
+
+async fn get_twitch_accounts(
+    user: User,
+    DbConn { mut conn }: DbConn,
+) -> Result<Json<Vec<Account>>, Error> {
+    let mut accounts = Vec::default();
+
+    let client = reqwest::Client::new();
+    for mut account in TwitchAccount::list(user, &mut conn).await? {
+        accounts.push(Account::get(&mut account, &client, &mut conn).await?);
     }
 
     Ok(Json(accounts))

@@ -58,6 +58,16 @@ pub trait AuthenticationHeader {
     }
 }
 
+pub trait GetDetail: Sized {
+    type Account;
+
+    fn get<'g>(
+        account: &'g mut Self::Account,
+        client: &'g reqwest::Client,
+        conn: &'g mut (impl AsyncConnection<Backend = Pg> + 'static),
+    ) -> impl futures::Future<Output = Result<Self, Error>> + Send + 'g;
+}
+
 /// Service that automatically adding .html extension to requests
 #[derive(Debug, Clone)]
 pub struct AddHtmlExtService<Fallback>(pub ServeDir<Fallback>);

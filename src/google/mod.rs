@@ -61,6 +61,8 @@ impl OAuthAccountHelper for GoogleSession {
     const AUTH_TYPE: oauth2::AuthType = oauth2::AuthType::BasicAuth;
 
     type ExtraFields = IdToken;
+    type Account = GoogleAccount;
+    type Response = Vec<youtube::Channel>;
 
     async fn new(
         access_token: AccessToken,
@@ -93,7 +95,7 @@ impl OAuthAccountHelper for GoogleSession {
         &self,
         user: User,
         conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<(), Error> {
+    ) -> Result<Self::Account, Error> {
         GoogleAccount {
             sub: self.sub.clone(),
             email: self.email.clone(),

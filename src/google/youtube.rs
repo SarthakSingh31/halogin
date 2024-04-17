@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
 use axum::Json;
+use diesel::pg::Pg;
+use diesel_async::AsyncConnection;
 
 use crate::{
     db::{GoogleAccount, GoogleAccountMeta, User},
     state::DbConn,
-    utils::AuthenticationHeader,
+    utils::{AuthenticationHeader, GetDetail},
     Error,
 };
 
@@ -18,8 +20,14 @@ pub struct Channel {
     pub account: GoogleAccountMeta,
 }
 
-impl Channel {
-    pub async fn list(user: User, DbConn { mut conn }: DbConn) -> Result<Json<Vec<Self>>, Error> {
+impl GetDetail for Vec<Channel> {
+    type Account = GoogleAccount;
+
+    async fn get<'g>(
+        account: &'g mut Self::Account,
+        client: &'g reqwest::Client,
+        conn: &'g mut (impl AsyncConnection<Backend = Pg> + 'static),
+    ) -> Result<Self, Error> {
         #[derive(serde::Serialize, serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
         pub struct ResponseChannel {
@@ -42,25 +50,40 @@ impl Channel {
             results_per_page: usize,
         }
 
+        let req = client
+                .get("https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true&maxResults=50")
+                .headers(account.headers(conn).await?)
+                .build()?;
+        let resp: Response = client.execute(req).await?.json().await?;
+        assert!(resp.page_info.total_results <= resp.page_info.results_per_page);
+
+        let meta = account.meta();
+        Ok(resp
+            .items
+            .into_iter()
+            .map(move |channel| Channel {
+                id: channel.id,
+                snippet: channel.snippet,
+                statistics: channel.statistics,
+                account: meta.clone(),
+            })
+            .collect())
+    }
+}
+
+impl Channel {
+    pub async fn list(user: User, DbConn { mut conn }: DbConn) -> Result<Json<Vec<Self>>, Error> {
         let accounts = GoogleAccount::list(user, &mut conn).await?;
         let mut channels = Vec::default();
 
         let client = reqwest::Client::default();
 
         for mut account in accounts {
-            let req = client
-                .get("https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true&maxResults=50")
-                .headers(account.headers(&mut conn).await?)
-                .build()?;
-            let resp: Response = client.execute(req).await?.json().await?;
-            assert!(resp.page_info.total_results <= resp.page_info.results_per_page);
-
-            channels.extend(resp.items.into_iter().map(|channel| Channel {
-                id: channel.id,
-                snippet: channel.snippet,
-                statistics: channel.statistics,
-                account: account.meta(),
-            }));
+            channels.extend(
+                Vec::<Self>::get(&mut account, &client, &mut conn)
+                    .await?
+                    .into_iter(),
+            );
         }
 
         Ok(Json(channels))
