@@ -10,8 +10,8 @@ use oauth2::{
         BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
         BasicTokenType,
     },
-    AccessToken, AuthUrl, Client, ClientId, ClientSecret, ExtraTokenFields, RedirectUrl,
-    RefreshToken, StandardRevocableToken, StandardTokenResponse, TokenResponse, TokenUrl,
+    AccessToken, AuthType, AuthUrl, Client, ClientId, ClientSecret, ExtraTokenFields, RedirectUrl,
+    RefreshToken, StandardRevocableToken, TokenResponse, TokenType, TokenUrl,
 };
 use time::{OffsetDateTime, PrimitiveDateTime};
 
@@ -28,11 +28,61 @@ pub struct LoginParams {
     keep_logged_in: bool,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct MinimalTokenResponse<EF, TT>
+where
+    EF: ExtraTokenFields,
+    TT: TokenType,
+{
+    access_token: AccessToken,
+    #[serde(bound = "TT: TokenType")]
+    #[serde(deserialize_with = "oauth2::helpers::deserialize_untagged_enum_case_insensitive")]
+    token_type: TT,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_in: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refresh_token: Option<RefreshToken>,
+
+    #[serde(bound = "EF: ExtraTokenFields")]
+    #[serde(flatten)]
+    extra_fields: EF,
+}
+
+impl<EF, TT> TokenResponse for MinimalTokenResponse<EF, TT>
+where
+    EF: ExtraTokenFields,
+    TT: TokenType,
+{
+    type TokenType = TT;
+
+    fn access_token(&self) -> &AccessToken {
+        &self.access_token
+    }
+
+    fn token_type(&self) -> &Self::TokenType {
+        &self.token_type
+    }
+
+    fn expires_in(&self) -> Option<std::time::Duration> {
+        self.expires_in
+            .map(|expires_in| std::time::Duration::from_secs(expires_in))
+    }
+
+    fn refresh_token(&self) -> Option<&RefreshToken> {
+        self.refresh_token.as_ref()
+    }
+
+    fn scopes(&self) -> Option<&Vec<oauth2::Scope>> {
+        None
+    }
+}
+
 pub trait OAuthAccountHelper: Sized {
     const CLIENT_ID: &'static str;
     const CLIENT_SECRET: &'static str;
     const AUTH_URL: &'static str;
     const TOKEN_URL: &'static str;
+    const AUTH_TYPE: AuthType;
 
     type ExtraFields: ExtraTokenFields;
 
@@ -41,7 +91,7 @@ pub trait OAuthAccountHelper: Sized {
         expires_at: PrimitiveDateTime,
         refresh_token: RefreshToken,
         extra_fields: &Self::ExtraFields,
-    ) -> Self;
+    ) -> impl futures::Future<Output = Result<Self, Error>> + Send + Sync;
 
     async fn insert_or_update_for_user(
         &self,
@@ -52,11 +102,12 @@ pub trait OAuthAccountHelper: Sized {
     async fn from_code(redirect_url: String, code: String) -> Result<Self, Error> {
         let client = Client::<
             BasicErrorResponse,
-            StandardTokenResponse<Self::ExtraFields, BasicTokenType>,
+            MinimalTokenResponse<Self::ExtraFields, BasicTokenType>,
             BasicTokenIntrospectionResponse,
             StandardRevocableToken,
             BasicRevocationErrorResponse,
         >::new(ClientId::new(Self::CLIENT_ID.into()))
+        .set_auth_type(Self::AUTH_TYPE)
         .set_client_secret(ClientSecret::new(Self::CLIENT_SECRET.into()))
         .set_auth_uri(AuthUrl::new(Self::AUTH_URL.into())?)
         .set_token_uri(TokenUrl::new(Self::TOKEN_URL.into())?)
@@ -92,18 +143,20 @@ pub trait OAuthAccountHelper: Sized {
             auth.access_token().clone(),
             PrimitiveDateTime::new(expires_at.date(), expires_at.time()),
             refresh_token,
-            auth.extra_fields(),
-        ))
+            &auth.extra_fields,
+        )
+        .await?)
     }
 
     async fn renew(refresh_token: RefreshToken) -> Result<Self, Error> {
         let client = Client::<
             BasicErrorResponse,
-            StandardTokenResponse<Self::ExtraFields, BasicTokenType>,
+            MinimalTokenResponse<Self::ExtraFields, BasicTokenType>,
             BasicTokenIntrospectionResponse,
             StandardRevocableToken,
             BasicRevocationErrorResponse,
         >::new(ClientId::new(Self::CLIENT_ID.into()))
+        .set_auth_type(Self::AUTH_TYPE)
         .set_client_secret(ClientSecret::new(Self::CLIENT_SECRET.into()))
         .set_auth_uri(AuthUrl::new(Self::AUTH_URL.into())?)
         .set_token_uri(TokenUrl::new(Self::TOKEN_URL.into())?);
@@ -132,8 +185,9 @@ pub trait OAuthAccountHelper: Sized {
             resp.access_token().clone(),
             PrimitiveDateTime::new(expires_at.date(), expires_at.time()),
             refresh_token,
-            resp.extra_fields(),
-        ))
+            &resp.extra_fields,
+        )
+        .await?)
     }
 
     async fn login(

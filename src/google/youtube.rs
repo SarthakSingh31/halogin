@@ -50,7 +50,7 @@ impl Channel {
         for mut account in accounts {
             let req = client
                 .get("https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true&maxResults=50")
-                .headers(account.authentication_header(&mut conn).await?)
+                .headers(account.headers(&mut conn).await?)
                 .build()?;
             let resp: Response = client.execute(req).await?.json().await?;
             assert!(resp.page_info.total_results <= resp.page_info.results_per_page);

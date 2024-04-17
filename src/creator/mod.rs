@@ -124,7 +124,7 @@ pub async fn account_pfps(
     let google_accounts = GoogleAccount::list(user, &mut conn).await?;
     for mut account in google_accounts {
         let req = client.get("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true&fields=items%2Fsnippet%2Fthumbnails")
-            .headers(account.authentication_header(&mut conn).await?)
+            .headers(account.headers(&mut conn).await?)
             .build()?;
         let resp: GoogleResp = client.execute(req).await?.json().await?;
         for item in resp.items {
@@ -145,7 +145,7 @@ pub async fn account_pfps(
     for mut account in twitch_accounts {
         let req = client
             .get("https://api.twitch.tv/helix/users")
-            .headers(account.authentication_header(&mut conn).await?)
+            .headers(account.headers(&mut conn).await?)
             .build()?;
         let resp: TwitchResp = client.execute(req).await?.json().await?;
         for user in resp.data {

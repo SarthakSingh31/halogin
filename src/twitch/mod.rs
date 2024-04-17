@@ -1,7 +1,7 @@
 use axum::{routing, Json, Router};
 use diesel::pg::Pg;
 use diesel_async::AsyncConnection;
-use oauth2::{AccessToken, ExtraTokenFields, RefreshToken};
+use oauth2::{AccessToken, RefreshToken};
 use time::PrimitiveDateTime;
 
 use crate::{
@@ -10,18 +10,6 @@ use crate::{
     utils::{oauth::OAuthAccountHelper, AuthenticationHeader},
     Error,
 };
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct TwitchIdToken {
-    id_token: String,
-}
-
-impl ExtraTokenFields for TwitchIdToken {}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct TwitchIdTokenDecoded {
-    id: String,
-}
 
 #[derive(Debug, Clone)]
 pub struct TwitchSession {
@@ -47,36 +35,46 @@ impl TwitchSession {
 
 impl OAuthAccountHelper for TwitchSession {
     const CLIENT_ID: &'static str = "65x8qdhtinpz5889thff2ae4o0nxrw";
-    const CLIENT_SECRET: &'static str = "shxqoc1j7dlzd0yj6z9ro9en5iaqdk";
+    const CLIENT_SECRET: &'static str = "p1wgsghdy4e39uq7rwreax0sgbxic7";
     const AUTH_URL: &'static str = "https://id.twitch.tv/oauth2/authorize";
     const TOKEN_URL: &'static str = "https://id.twitch.tv/oauth2/token";
+    const AUTH_TYPE: oauth2::AuthType = oauth2::AuthType::RequestBody;
 
-    type ExtraFields = TwitchIdToken;
+    type ExtraFields = oauth2::EmptyExtraTokenFields;
 
-    fn new(
+    async fn new(
         access_token: AccessToken,
         expires_at: PrimitiveDateTime,
         refresh_token: RefreshToken,
-        extra_fields: &Self::ExtraFields,
-    ) -> Self {
-        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
-        validation.insecure_disable_signature_validation();
-        validation.validate_aud = false;
-        validation.validate_exp = false;
+        _extra_fields: &Self::ExtraFields,
+    ) -> Result<Self, Error> {
+        let client = reqwest::Client::new();
 
-        let id_token_decoded = jsonwebtoken::decode::<TwitchIdTokenDecoded>(
-            &extra_fields.id_token,
-            &jsonwebtoken::DecodingKey::from_secret(&[]),
-            &validation,
-        )
-        .expect("With verification disabled this is infallible");
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            data: Vec<Data>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Data {
+            id: String,
+        }
+        let req = client
+            .get("https://api.twitch.tv/helix/users")
+            .bearer_auth(access_token.secret())
+            .header("Client-Id", Self::CLIENT_ID)
+            .build()?;
+        let mut resp: Resp = client.execute(req).await?.json().await?;
 
-        TwitchSession {
+        Ok(TwitchSession {
             access_token,
             expires_at,
             refresh_token,
-            id: id_token_decoded.claims.id,
-        }
+            id: resp
+                .data
+                .pop()
+                .expect("Twitch user response does not have any user data")
+                .id,
+        })
     }
 
     async fn insert_or_update_for_user(
@@ -135,7 +133,7 @@ async fn get_twitch_accounts(
                 "https://api.twitch.tv/helix/users?id={}",
                 account.id
             ))
-            .headers(account.authentication_header(&mut conn).await?)
+            .headers(account.headers(&mut conn).await?)
             .build()?;
         let mut user_resp: UserResp = client.execute(user_req).await?.json().await?;
 
@@ -148,7 +146,7 @@ async fn get_twitch_accounts(
                 "https://api.twitch.tv/helix/subscriptions?broadcaster_id={}",
                 account.id
             ))
-            .headers(account.authentication_header(&mut conn).await?)
+            .headers(account.headers(&mut conn).await?)
             .build()?;
         let subscriber_resp: SubsriberResp = client.execute(subscriber_req).await?.json().await?;
 
@@ -161,7 +159,7 @@ async fn get_twitch_accounts(
                 "https://api.twitch.tv/helix/channels/followers?broadcaster_id={}",
                 account.id
             ))
-            .headers(account.authentication_header(&mut conn).await?)
+            .headers(account.headers(&mut conn).await?)
             .build()?;
         let follower_resp: FollowerResp = client.execute(follower_req).await?.json().await?;
 

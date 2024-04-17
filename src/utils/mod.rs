@@ -3,7 +3,7 @@ use std::task::{Context, Poll};
 
 use crate::{db::User, Error};
 use axum::body::Bytes;
-use axum::http::{Request, Response};
+use axum::http::{HeaderValue, Request, Response};
 use diesel::pg::Pg;
 use diesel_async::AsyncConnection;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
@@ -17,6 +17,9 @@ use oauth::OAuthAccountHelper;
 const BUFFER_TIME: Duration = Duration::seconds(1);
 
 pub trait AuthenticationHeader {
+    const EXTRA_HEADERS: Self::ExtraHeader;
+
+    type ExtraHeader: IntoIterator<Item = (&'static str, HeaderValue)>;
     type Session: OAuthAccountHelper;
 
     fn access_token(&self) -> &str;
@@ -25,7 +28,7 @@ pub trait AuthenticationHeader {
     fn user(&self) -> User;
     fn update(&mut self, session: Self::Session);
 
-    fn authentication_header(
+    fn headers(
         &mut self,
         conn: &mut impl AsyncConnection<Backend = Pg>,
     ) -> impl futures::Future<Output = Result<reqwest::header::HeaderMap, Error>> {
@@ -46,6 +49,9 @@ pub trait AuthenticationHeader {
                 reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.access_token()))
                     .expect("Failed to make the bearer token header value"),
             );
+            for (key, val) in Self::EXTRA_HEADERS {
+                map.insert(key, val.clone());
+            }
 
             Ok(map)
         }

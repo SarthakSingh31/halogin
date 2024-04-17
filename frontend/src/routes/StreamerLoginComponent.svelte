@@ -1,79 +1,84 @@
 <script lang="ts">
-    import { Checkbox, DarkMode, Heading } from "flowbite-svelte";
-    import {
-        Navbar,
-        NavBrand,
-        NavLi,
-        NavUl,
-        NavHamburger,
-        Button,
-        Input,
-        GradientButton,
-    } from "flowbite-svelte";
-    import { SearchOutline } from "flowbite-svelte-icons";
-    import Logo from "../lib/logo.svg";
+    import { Checkbox } from "flowbite-svelte";
+    import { Button } from "flowbite-svelte";
+    import { GoogleOAuthProvider } from "google-oauth-gsi";
 
     let checked = false;
 
-    function signInCallback(authResult: { code: string }) {
-        if (authResult["code"]) {
-            fetch("/api/v1/google/login", {
-                method: "POST",
-                headers: {
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Content-Type": "application/json; charset=utf-8",
-                },
-                body: JSON.stringify({
-                    redirect_origin: window.location.origin,
-                    code: authResult["code"],
-                    keep_logged_in: checked,
-                }),
-            });
-        } else {
-            // There was an error.
-        }
-    }
+    const googleProvider = new GoogleOAuthProvider({
+        clientId:
+            "751704262503-61e56pavvl5d8l5fg6s62iejm8ft16ac.apps.googleusercontent.com",
+        onScriptLoadError: () => console.log("onScriptLoadError"),
+        onScriptLoadSuccess: () => console.log("onScriptLoadSuccess"),
+    });
+    const login = googleProvider.useGoogleLogin({
+        flow: "auth-code",
+        scope: "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.channel-memberships.creator https://www.googleapis.com/auth/yt-analytics.readonly",
+        onSuccess: (authResult: { code: string }) => {
+            if (authResult["code"]) {
+                fetch("/api/v1/google/login", {
+                    method: "POST",
+                    headers: {
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Content-Type": "application/json; charset=utf-8",
+                    },
+                    body: JSON.stringify({
+                        redirect_origin: window.location.origin,
+                        code: authResult["code"],
+                        keep_logged_in: checked,
+                    }),
+                }).catch(console.error);
+            } else {
+                console.error("No auth code recieved from google auth");
+            }
+        },
+        onError: (err) => console.error("Failed to login with google", err),
+    });
 
-    function googleSignInCallback() {
-        // @ts-expect-error
-        auth2.grantOfflineAccess().then(signInCallback);
+    function twitchLogin() {
+        const TWITCH_CLIENT_ID = "65x8qdhtinpz5889thff2ae4o0nxrw";
+        const TWITCH_SCOPES = encodeURIComponent(
+            ["channel:read:subscriptions", "moderator:read:followers"].join(
+                " ",
+            ),
+        );
+        const REDIRECT_URI = encodeURIComponent(
+            `${window.location.origin}/login_redirect`,
+        );
+        const STATE =
+            Math.random().toString(36).slice(2) +
+            Math.random().toString(36).slice(2) +
+            Math.random().toString(36).slice(2);
+
+        window.twitchCallback = (state: string, code: string) => {
+            if (state == STATE) {
+                fetch("/api/v1/twitch/login", {
+                    method: "POST",
+                    headers: {
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Content-Type": "application/json; charset=utf-8",
+                    },
+                    body: JSON.stringify({
+                        redirect_origin: decodeURIComponent(REDIRECT_URI),
+                        code,
+                        keep_logged_in: checked,
+                    }),
+                }).catch(console.error);
+            } else {
+                console.error("Wrong state on twitch login response");
+            }
+        };
+
+        window.open(
+            `https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=${TWITCH_CLIENT_ID}&redirect_uri=${REDIRECT_URI}&scope=${TWITCH_SCOPES}&state=${STATE}`,
+            "_blank",
+            "height=600,width=400",
+        );
     }
 </script>
 
-<svelte:head>
-    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js">
-    </script>
-    <script
-        src="https://apis.google.com/js/client:platform.js?onload=start"
-        async
-        defer
-    >
-    </script>
-    <script>
-        function start() {
-            gapi.load("auth2", function () {
-                auth2 = gapi.auth2.init({
-                    client_id:
-                        "751704262503-61e56pavvl5d8l5fg6s62iejm8ft16ac.apps.googleusercontent.com",
-                    // Scopes to request in addition to 'profile' and 'email'
-                    scope: "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.channel-memberships.creator https://www.googleapis.com/auth/yt-analytics.readonly",
-                    plugin_name: "halogin",
-                });
-            });
-        }
-    </script>
-</svelte:head>
-
 <div>
-    <button on:click={googleSignInCallback}>Sign in with Google</button>
-    <button id="twitchSigninButton">Connect with Twitch</button>
+    <Button on:click={() => login()}>Sign in with Google</Button>
+    <Button on:click={twitchLogin}>Connect with Twitch</Button>
     <Checkbox bind:checked>Keep logged in</Checkbox>
-    <script>
-        $("#twitchSigninButton").click(function () {
-            const CLIENT_ID = "65x8qdhtinpz5889thff2ae4o0nxrw";
-            window.open(
-                `https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${window.location.origin}&scope=channel%3Amanage%3Apolls+channel%3Aread%3Apolls&state=c3ab8aa609ea11e793ae92361f002671`,
-            );
-        });
-    </script>
 </div>
