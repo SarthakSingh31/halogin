@@ -1,5 +1,5 @@
 <script>
-    import { Navbar, NavBrand, NavLi, NavUl, NavHamburger, ImagePlaceholder, Skeleton, TextPlaceholder, Button } from 'flowbite-svelte';
+    import { Navbar, NavBrand, NavLi, NavUl, NavHamburger, ImagePlaceholder, Skeleton, TextPlaceholder, Button, Checkbox, Modal } from 'flowbite-svelte';
     import Logo from "../lib/logo.svg";
     import GoogleLogin from "./GoogleLogin.svelte";
     import TwitchLogin from "./TwitchLogin.svelte";
@@ -8,23 +8,7 @@
     let keepLoggedIn = false;
 </script>
 
-<style>
-    .color{
-       background-color: #ecf0f3;
-    }
-    .nav-item {
-        padding-top: 10px;
-        padding-bottom: 10px; 
-        margin-bottom: 8px; 
-        display: flex;
-        align-items: center;
-    }
-    .button-container {
-        display: flex;
-        align-items: center;
-        gap: 8px; 
-    }
-</style>
+
 
 <div class="relative px-8 ">
     <Navbar class="px-2 sm:px-4 py-2.5 fixed w-full z-20 top-0 start-0 border-b">
