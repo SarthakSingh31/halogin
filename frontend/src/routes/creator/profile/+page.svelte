@@ -5,50 +5,80 @@
         Textarea,
         Dropzone,
         Fileupload,
+        Avatar,
+        Button,
     } from "flowbite-svelte";
     import default_img from "$lib/default.jpg";
     import { onMount } from "svelte";
     import CreatorCard from "../creator-card.svelte";
+    import GoogleLogin from "../../GoogleLogin.svelte";
+    import TwitchLogin from "../../TwitchLogin.svelte";
+
+    let youtubeChannels: YoutubeChannel[] = [];
+    let twitchAccounts: TwitchAccount[] = [];
+
+    $: youtubePfpImages = youtubeChannels.map((channel) => {
+        return {
+            url: channel.snippet.thumbnails.high.url,
+            file: null,
+            isRemote: true,
+        };
+    });
+    $: twitchPfpImages = twitchAccounts.map((account) => {
+        return {
+            url: account.profile_image_url,
+            file: null,
+            isRemote: true,
+        };
+    });
+
+    onMount(() => {
+        fetch("/api/v1/google/youtube/channel")
+            .then((resp) => resp.json())
+            .then((channels) => {
+                youtubeChannels = channels;
+            });
+        fetch("/api/v1/twitch/account")
+            .then((resp) => resp.json())
+            .then((accounts) => {
+                twitchAccounts = accounts;
+            });
+    });
+
+    let selected = 0;
+
+    $: selected_image = images[selected];
+    $: remote_url = selected_image.isRemote ? selected_image.url : null;
 
     let files: any;
-    let images: { url: string; file: File | null; isRemote: Boolean }[] = [
-        { url: default_img, file: null, isRemote: false },
-    ];
-    let selected = 0;
-    let last_url = "";
+    let file_images: { url: string; file: File | null; isRemote: Boolean }[] =
+        [];
+    let last_file_url = "";
 
     $: {
         if (files && files[0]) {
             let reader = new FileReader();
             reader.onload = (evt) => {
-                let new_url = evt.target?.result as string;
-                if (last_url !== new_url) {
-                    images = [
-                        { url: new_url, file: files[0], isRemote: false },
-                        ...images,
+                let new_file_url = evt.target?.result as string;
+                if (last_file_url !== new_file_url) {
+                    file_images = [
+                        { url: new_file_url, file: files[0], isRemote: false },
+                        ...file_images,
                     ];
                     selected = 0;
-                    last_url = new_url;
+                    last_file_url = new_file_url;
                 }
             };
             reader.readAsDataURL(files[0]);
         }
     }
-    $: selected_image = images[selected];
-    $: remote_url = selected_image.isRemote ? selected_image.url : null;
 
-    onMount(() => {
-        fetch("/api/v1/creator/account_pfps")
-            .then((resp) => resp.json())
-            .then((image_urls) =>
-                image_urls.forEach((image_url: string) => {
-                    images = [
-                        { url: image_url, file: null, isRemote: true },
-                        ...images,
-                    ];
-                }),
-            );
-    });
+    $: images = [
+        ...file_images,
+        ...youtubePfpImages,
+        ...twitchPfpImages,
+        { url: default_img, file: null, isRemote: false },
+    ];
 
     let givenName = "";
     let familyName = "";
@@ -99,6 +129,82 @@
                         placeholder="They/Them"
                         bind:value={pronouns}
                         required
+                    />
+                </div>
+            </div>
+            <div class="grid gap-6 mb-4 md:grid-cols-2">
+                <div>
+                    {#each youtubeChannels as channel}
+                        <Button
+                            on:click={() => {
+                                window.open(
+                                    `https://www.youtube.com/${channel.snippet.customUrl}`,
+                                );
+                            }}
+                        >
+                            <Avatar
+                                size="xs"
+                                src={channel.snippet.thumbnails.high.url}
+                                border
+                            />
+                            <span class="ml-2">{channel.snippet.title}</span>
+                        </Button>
+                    {/each}
+                    <br />
+                    <GoogleLogin
+                        onSuccess={(resp) =>
+                            resp.json().then((data) => {
+                                let hasThisAccount = false;
+                                youtubeChannels.forEach((channel) => {
+                                    if (channel.id === data.id) {
+                                        hasThisAccount = true;
+                                    }
+                                });
+
+                                if (!hasThisAccount) {
+                                    youtubeChannels = [
+                                        ...youtubeChannels,
+                                        data,
+                                    ];
+                                }
+                            })}
+                    />
+                </div>
+                <div>
+                    {#each twitchAccounts as account}
+                        <Button
+                            on:click={() => {
+                                window.open(
+                                    `https://www.twitch.tv/${account.display_name}`,
+                                );
+                            }}
+                        >
+                            <Avatar
+                                size="xs"
+                                src={account.profile_image_url}
+                                border
+                            />
+                            <span class="ml-2">{account.display_name}</span>
+                        </Button>
+                    {/each}
+                    <br />
+                    <TwitchLogin
+                        onSuccess={(resp) =>
+                            resp.json().then((data) => {
+                                let hasThisAccount = false;
+                                twitchAccounts.forEach((account) => {
+                                    if (
+                                        account.display_name ===
+                                        data.display_name
+                                    ) {
+                                        hasThisAccount = true;
+                                    }
+                                });
+
+                                if (!hasThisAccount) {
+                                    twitchAccounts = [...twitchAccounts, data];
+                                }
+                            })}
                     />
                 </div>
             </div>
@@ -211,6 +317,8 @@
                 audienceDesc:
                     "My audience mostly consists of video game nerds.",
             }}
+            {youtubeChannels}
+            {twitchAccounts}
         />
     </div>
 </div>
