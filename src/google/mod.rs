@@ -57,15 +57,16 @@ impl OAuthAccountHelper for GoogleSession {
     const CLIENT_SECRET: &'static str = "<GoogleSecret>";
     const AUTH_URL: &'static str = "https://accounts.google.com/o/oauth2/v2/auth";
     const TOKEN_URL: &'static str = "https://oauth2.googleapis.com/token";
+    const AUTH_TYPE: oauth2::AuthType = oauth2::AuthType::BasicAuth;
 
     type ExtraFields = IdToken;
 
-    fn new(
+    async fn new(
         access_token: AccessToken,
         expires_at: PrimitiveDateTime,
         refresh_token: RefreshToken,
         extra_fields: &Self::ExtraFields,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.insecure_disable_signature_validation();
         validation.validate_aud = false;
@@ -78,13 +79,13 @@ impl OAuthAccountHelper for GoogleSession {
         )
         .expect("With verification disabled this is infallible");
 
-        GoogleSession {
+        Ok(GoogleSession {
             access_token,
             expires_at,
             refresh_token,
             email: id_token_decoded.claims.email,
             sub: id_token_decoded.claims.sub,
-        }
+        })
     }
 
     async fn insert_or_update_for_user(

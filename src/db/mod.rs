@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use axum::{
     async_trait,
     extract::FromRequestParts,
-    http::{header::CONTENT_TYPE, request::Parts, StatusCode},
+    http::{header::CONTENT_TYPE, request::Parts, HeaderValue, StatusCode},
 };
 use diesel::{
     deserialize::Queryable, pg::Pg, prelude::Insertable, upsert::excluded, AsChangeset,
@@ -16,8 +16,12 @@ use time::{OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
 use crate::{
-    google::GoogleSession, state::AppState, storage::Storage, twitch::TwitchSession,
-    utils::AuthenticationHeader, Error,
+    google::GoogleSession,
+    state::AppState,
+    storage::Storage,
+    twitch::TwitchSession,
+    utils::{oauth::OAuthAccountHelper, AuthenticationHeader},
+    Error,
 };
 
 mod embedding;
@@ -332,6 +336,12 @@ pub struct TwitchAccountMeta {
 }
 
 impl AuthenticationHeader for TwitchAccount {
+    const EXTRA_HEADERS: Self::ExtraHeader = [(
+        "Client-Id",
+        HeaderValue::from_static(TwitchSession::CLIENT_ID),
+    )];
+
+    type ExtraHeader = [(&'static str, HeaderValue); 1];
     type Session = TwitchSession;
 
     fn access_token(&self) -> &str {
@@ -439,6 +449,9 @@ pub struct GoogleAccountMeta {
 }
 
 impl AuthenticationHeader for GoogleAccount {
+    const EXTRA_HEADERS: Self::ExtraHeader = [];
+
+    type ExtraHeader = [(&'static str, HeaderValue); 0];
     type Session = GoogleSession;
 
     fn access_token(&self) -> &str {

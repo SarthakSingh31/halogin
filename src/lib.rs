@@ -27,6 +27,8 @@ use time::Duration;
 use tokio::sync::mpsc;
 use tower_http::services::ServeDir;
 
+build_svelte::build_svelte!();
+
 pub const SESSION_COOKIE_NAME: &str = "HALOGIN-SESSION";
 pub const SESSION_COOKIE_DURATION: Duration = Duration::days(90);
 
