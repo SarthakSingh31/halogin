@@ -1,6 +1,5 @@
 use axum::{
     http::{header::SET_COOKIE, HeaderName, StatusCode},
-    response::IntoResponse,
     Json,
 };
 use axum_extra::{either::Either, extract::cookie::Cookie};

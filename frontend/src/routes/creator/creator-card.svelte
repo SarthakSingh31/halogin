@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Avatar, Card } from "flowbite-svelte";
+    import { Avatar, Button, Card } from "flowbite-svelte";
 
     export let data: {
         givenName: string;
@@ -20,6 +20,9 @@
     };
     let defaultClass: string;
     export { defaultClass as class };
+
+    export let youtubeChannels: YoutubeChannel[];
+    export let twitchAccounts: TwitchAccount[];
 
     $: givenName = data.givenName == "" ? defaults.givenName : data.givenName;
     $: familyName =
@@ -66,6 +69,53 @@
                 </h6>
                 {audienceDesc}
             </div>
+        </div>
+        <div>
+            {#each youtubeChannels as channel}
+                <Button
+                    on:click={() => {
+                        window.open(
+                            `https://www.youtube.com/${channel.snippet.customUrl}`,
+                        );
+                    }}
+                >
+                    <Avatar
+                        size="xs"
+                        src={channel.snippet.thumbnails.high.url}
+                        border
+                    />
+                    <span class="ml-2">{channel.snippet.title}</span>
+                </Button>
+                <span class="ml-2">
+                    Subscriber Count: {channel.statistics.subscriberCount}
+                </span>
+                <span class="ml-2">
+                    Viewer per video: {(
+                        channel.statistics.viewCount /
+                        channel.statistics.videoCount
+                    ).toFixed(2)}
+                </span>
+            {/each}
+        </div>
+        <div>
+            {#each twitchAccounts as account}
+                <Button
+                    on:click={() => {
+                        window.open(
+                            `https://www.twitch.tv/${account.display_name}`,
+                        );
+                    }}
+                >
+                    <Avatar size="xs" src={account.profile_image_url} border />
+                    <span class="ml-2">{account.display_name}</span>
+                </Button>
+                <span class="ml-2">
+                    Follower Count: {account.follower_count}
+                </span>
+                <span class="ml-2">
+                    Subscriber Count: {account.subscriber_count}
+                </span>
+            {/each}
         </div>
     </Card>
 </div>

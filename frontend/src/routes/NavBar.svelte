@@ -7,11 +7,14 @@
         NavHamburger,
         Button,
         Modal,
+        Checkbox,
     } from "flowbite-svelte";
-    import CreatorLoginComponent from "./CreatorLoginComponent.svelte";
     import Logo from "../lib/logo.svg";
+    import GoogleLogin from "./GoogleLogin.svelte";
+    import TwitchLogin from "./TwitchLogin.svelte";
 
     let open = false;
+    let keepLoggedIn = false;
 </script>
 
 <div class="relative px-8">
@@ -53,7 +56,17 @@
             </div>
         </NavUl>
     </Navbar>
-    <Modal bind:open><CreatorLoginComponent /></Modal>
+    <Modal bind:open>
+        <GoogleLogin
+            bind:keepLoggedIn
+            onSuccess={() => (window.location.pathname = "creator/profile")}
+        />
+        <TwitchLogin
+            bind:keepLoggedIn
+            onSuccess={() => (window.location.pathname = "creator/profile")}
+        />
+        <Checkbox bind:checked={keepLoggedIn}>Keep logged in</Checkbox>
+    </Modal>
 </div>
 
 <style>

@@ -40,7 +40,7 @@ impl GetDetail for Vec<Channel> {
         #[serde(rename_all = "camelCase")]
         struct Response {
             page_info: PageInfo,
-            items: Vec<ResponseChannel>,
+            items: Option<Vec<ResponseChannel>>,
         }
 
         #[derive(serde::Deserialize)]
@@ -60,6 +60,7 @@ impl GetDetail for Vec<Channel> {
         let meta = account.meta();
         Ok(resp
             .items
+            .unwrap_or_default()
             .into_iter()
             .map(move |channel| Channel {
                 id: channel.id,
