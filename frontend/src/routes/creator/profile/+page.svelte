@@ -80,6 +80,34 @@
         { url: default_img, file: null, isRemote: false },
     ];
 
+    function googleLoginSuccess(data: YoutubeChannel[]) {
+        data.forEach((channelData) => {
+            let hasThisAccount = false;
+            youtubeChannels.forEach((channel) => {
+                if (channel.id === channelData.id) {
+                    hasThisAccount = true;
+                }
+            });
+
+            if (!hasThisAccount) {
+                youtubeChannels = [...youtubeChannels, channelData];
+            }
+        });
+    }
+
+    function twitchLoginSuccess(data: TwitchAccount) {
+        let hasThisAccount = false;
+        twitchAccounts.forEach((channel) => {
+            if (channel.display_name === data.display_name) {
+                hasThisAccount = true;
+            }
+        });
+
+        if (!hasThisAccount) {
+            twitchAccounts = [...twitchAccounts, data];
+        }
+    }
+
     let givenName = "";
     let familyName = "";
     let pronouns = "";
@@ -153,21 +181,7 @@
                     <br />
                     <GoogleLogin
                         onSuccess={(resp) =>
-                            resp.json().then((data) => {
-                                let hasThisAccount = false;
-                                youtubeChannels.forEach((channel) => {
-                                    if (channel.id === data.id) {
-                                        hasThisAccount = true;
-                                    }
-                                });
-
-                                if (!hasThisAccount) {
-                                    youtubeChannels = [
-                                        ...youtubeChannels,
-                                        data,
-                                    ];
-                                }
-                            })}
+                            resp.json().then(googleLoginSuccess)}
                     />
                 </div>
                 <div>
@@ -190,21 +204,7 @@
                     <br />
                     <TwitchLogin
                         onSuccess={(resp) =>
-                            resp.json().then((data) => {
-                                let hasThisAccount = false;
-                                twitchAccounts.forEach((account) => {
-                                    if (
-                                        account.display_name ===
-                                        data.display_name
-                                    ) {
-                                        hasThisAccount = true;
-                                    }
-                                });
-
-                                if (!hasThisAccount) {
-                                    twitchAccounts = [...twitchAccounts, data];
-                                }
-                            })}
+                            resp.json().then(twitchLoginSuccess)}
                     />
                 </div>
             </div>
