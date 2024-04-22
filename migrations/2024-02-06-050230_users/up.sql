@@ -2,8 +2,13 @@ CREATE EXTENSION vector;
 
 SET hnsw.ef_search = 1000;
 
+-- These parameters assume that server has 32GB of RAM
+-- SET shared_buffers = '8GB';
+SET work_mem = '4GB';
 SET maintenance_work_mem = '8GB';
+SET effective_cache_size = '8GB';
 
+-- These parameters assume that server has 16 cores
 SET max_parallel_maintenance_workers = 7;
 
 CREATE TABLE InnerUser (
@@ -11,7 +16,7 @@ CREATE TABLE InnerUser (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE CreatorData (
+CREATE TABLE CreatorProfile (
     user_id UUID PRIMARY KEY,
     given_name TEXT NOT NULL,
     family_name TEXT NOT NULL,
@@ -20,11 +25,11 @@ CREATE TABLE CreatorData (
     content_desc TEXT NOT NULL,
     audience_desc TEXT NOT NULL,
     pfp_path TEXT,
-    embedding VECTOR(1024) NOT NULL,
+    embedding VECTOR(1536) NOT NULL,
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
 );
 
-CREATE INDEX creator_data_embedding ON CreatorData USING hnsw (embedding vector_ip_ops) WITH (m = 40, ef_construction = 160);
+CREATE INDEX creator_profile_embedding ON CreatorProfile USING hnsw (embedding vector_ip_ops) WITH (m = 40, ef_construction = 160);
 
 CREATE TABLE InnerUserSession (
     token TEXT PRIMARY KEY,

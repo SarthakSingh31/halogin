@@ -121,7 +121,7 @@
     <div class="min-h-screen max-h-screen overflow-x-scroll">
         <form
             class="m-8"
-            action="/api/v1/creator/data"
+            action="/api/v1/creator/profile"
             method="post"
             enctype="multipart/form-data"
         >

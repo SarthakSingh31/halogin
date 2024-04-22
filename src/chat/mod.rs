@@ -7,7 +7,7 @@ use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::{
-    db::User,
+    db::{Company, User, UserInfo},
     models,
     state::{DbConn, MsgEmitter},
     ws::{WsError, WsFunctions},
@@ -60,7 +60,7 @@ enum CreateChatRoomDirection {
 
 #[derive(serde::Serialize)]
 struct ChatRoom {
-    users: HashMap<Uuid, models::UserInfo>,
+    users: HashMap<Uuid, UserInfo>,
     messages: Vec<models::Message>,
     last_seen_message: HashMap<Uuid, i64>,
 }
@@ -100,13 +100,13 @@ async fn create(
             current_user_company_id,
             other_user_id,
         } => {
-            let current_user_info = models::UserInfo::from_id(user.id, &mut conn)
+            let current_user_info = UserInfo::for_user(user, &mut conn)
                 .await?
                 .expect("Failed to find the user who is the owner of the current session");
             if current_user_info
-                .company
+                .companies
                 .into_iter()
-                .any(|company_id| company_id.id == current_user_company_id)
+                .any(|company_id| company_id == current_user_company_id)
             {
                 (current_user_company_id, other_user_id)
             } else {
@@ -117,7 +117,7 @@ async fn create(
         }
     };
 
-    let users_in_company = models::CompanyUser::users_in_company(company_id, &mut conn).await?;
+    let users_in_company = Company::users_in(company_id, &mut conn).await?;
     if users_in_company.iter().any(|id| *id == user_id) {
         return Err(WsError::Custom {
             reason: "Cannot make a chat with a user of the same company".into(),

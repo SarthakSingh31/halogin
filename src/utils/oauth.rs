@@ -21,7 +21,7 @@ use crate::{
     Error,
 };
 
-use super::GetDetail;
+use super::{AuthenticationHeader, GetDetail};
 
 #[derive(serde::Deserialize)]
 pub struct LoginParams {
@@ -66,8 +66,7 @@ where
     }
 
     fn expires_in(&self) -> Option<std::time::Duration> {
-        self.expires_in
-            .map(|expires_in| std::time::Duration::from_secs(expires_in))
+        self.expires_in.map(std::time::Duration::from_secs)
     }
 
     fn refresh_token(&self) -> Option<&RefreshToken> {
@@ -87,7 +86,7 @@ pub trait OAuthAccountHelper: Sized {
     const AUTH_TYPE: AuthType;
 
     type ExtraFields: ExtraTokenFields;
-    type Account;
+    type Account: AuthenticationHeader;
     type Response: serde::Serialize + GetDetail<Account = Self::Account>;
 
     fn new(
@@ -143,13 +142,13 @@ pub trait OAuthAccountHelper: Sized {
             error: "Could not get a refresh token for the given code".to_string(),
         })?;
 
-        Ok(Self::new(
+        Self::new(
             auth.access_token().clone(),
             PrimitiveDateTime::new(expires_at.date(), expires_at.time()),
             refresh_token,
             &auth.extra_fields,
         )
-        .await?)
+        .await
     }
 
     async fn renew(refresh_token: RefreshToken) -> Result<Self, Error> {
@@ -185,13 +184,13 @@ pub trait OAuthAccountHelper: Sized {
             })?;
         let refresh_token = resp.refresh_token().cloned().unwrap_or(refresh_token);
 
-        Ok(Self::new(
+        Self::new(
             resp.access_token().clone(),
             PrimitiveDateTime::new(expires_at.date(), expires_at.time()),
             refresh_token,
             &resp.extra_fields,
         )
-        .await?)
+        .await
     }
 
     async fn login(
@@ -207,8 +206,9 @@ pub trait OAuthAccountHelper: Sized {
         let resp = if let Some(user) = user {
             let mut acct = session.insert_or_update_for_user(user, &mut conn).await?;
 
+            let headers = acct.headers(&mut conn).await?;
             Either::E1(Json(
-                Self::Response::get(&mut acct, &reqwest::Client::new(), &mut conn).await?,
+                Self::Response::get(&mut acct, &reqwest::Client::new(), headers).await?,
             ))
         } else {
             let now = OffsetDateTime::now_utc();
@@ -233,9 +233,10 @@ pub trait OAuthAccountHelper: Sized {
             cookie.set_path("/");
             cookie.set_secure(true);
 
+            let headers = acct.headers(&mut conn).await?;
             Either::E2((
                 [(SET_COOKIE, cookie.encoded().to_string())],
-                Json(Self::Response::get(&mut acct, &reqwest::Client::new(), &mut conn).await?),
+                Json(Self::Response::get(&mut acct, &reqwest::Client::new(), headers).await?),
             ))
         };
 

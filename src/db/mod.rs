@@ -3,11 +3,11 @@ use std::borrow::Cow;
 use axum::{
     async_trait,
     extract::FromRequestParts,
-    http::{header::CONTENT_TYPE, request::Parts, HeaderValue, StatusCode},
+    http::{request::Parts, HeaderValue},
 };
 use diesel::{
     deserialize::Queryable, pg::Pg, prelude::Insertable, upsert::excluded, AsChangeset,
-    ExpressionMethods, OptionalExtension, QueryDsl, Selectable,
+    BoolExpressionMethods, ExpressionMethods, OptionalExtension, QueryDsl, Selectable,
 };
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use image::{DynamicImage, ImageFormat};
@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::{
     google::GoogleSession,
     state::AppState,
-    storage::Storage,
+    storage::{Folder, Storage},
     twitch::TwitchSession,
     utils::{oauth::OAuthAccountHelper, AuthenticationHeader},
     Error,
@@ -33,11 +33,18 @@ pub struct Encoder(&'static embedding::EmbeddingEncoder);
 
 impl Encoder {
     pub async fn new() -> Self {
-        Encoder(Box::leak(Box::new(
-            embedding::EmbeddingEncoder::new()
-                .await
-                .expect("Failed to build the embedding encoder"),
-        )))
+        match embedding::EmbeddingEncoder::new_voyage().await {
+            Ok(encoder) => Encoder(Box::leak(Box::new(encoder))),
+            Err(err) => {
+                tracing::warn!("Failed to create voyage embeddings due to: {err:?}\nTrying with the custom model");
+
+                let encoder = embedding::EmbeddingEncoder::new_model()
+                    .await
+                    .expect("Failed to build the embedding encoder");
+
+                Encoder(Box::leak(Box::new(encoder)))
+            }
+        }
     }
 
     pub async fn encode(&self, text: String) -> Result<Vec<f32>, Error> {
@@ -173,9 +180,9 @@ impl UserSession {
 }
 
 #[derive(Clone, Insertable)]
-#[diesel(table_name = schema::creatordata)]
+#[diesel(table_name = schema::creatorprofile)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct CreatorData<'d> {
+pub struct CreatorProfile<'d> {
     user_id: Uuid,
     pub given_name: &'d str,
     pub family_name: &'d str,
@@ -187,9 +194,9 @@ pub struct CreatorData<'d> {
     embedding: Vector,
 }
 
-impl<'d> CreatorData<'d> {
+impl<'d> CreatorProfile<'d> {
     fn format_creator_descriptions(profile: &str, content: &str, audience: &str) -> String {
-        format!("# Content Creator Profile Description:\n{profile}\n\n# Content Creator Content Description:\n{content}\n\n# Content Creator Audience Description:\n{audience}")
+        format!("Question: Who am I?\nAnswer: {profile}\n\nQuestion: What do I make?\nAnswer: {content}\n\nQuestion: Who watches my content?\nAnswer: {audience}")
     }
 
     pub async fn insert_update(
@@ -210,41 +217,14 @@ impl<'d> CreatorData<'d> {
             Self::format_creator_descriptions(profile_desc, content_desc, audience_desc);
         let embedding = encoder.encode(user_embedding_desc).await?;
 
-        let pfp_path = if let Some(url) = pfp_hidden
-            && !url.is_empty()
-        {
-            let response = reqwest::get(url).await?;
-            let mime_type = response
-                .headers()
-                .get(CONTENT_TYPE)
-                .ok_or(Error::Custom {
-                    status_code: StatusCode::BAD_REQUEST,
-                    error: format!("Could not figure out image content type from the url request."),
-                })?
-                .to_str()
-                .map_err(Error::HeaderCoversionError)?
-                .to_string();
-            let img_bytes = response.bytes().await?;
-            let format = ImageFormat::from_mime_type(&mime_type).ok_or(Error::Custom {
-                status_code: StatusCode::BAD_REQUEST,
-                error: format!("Could not figure out image format from mime type: {mime_type}"),
-            })?;
+        let pfp_path = storage
+            .store_public_image(Folder::ProfilePicture, user.id, pfp_hidden, pfp)
+            .await?;
 
-            let pfp = image::load_from_memory_with_format(&img_bytes, format)?;
+        use schema::creatorprofile::dsl as cp_dsl;
 
-            Some(storage.store_public_pfp(user, pfp, format).await?)
-        } else {
-            if let Some((pfp, format)) = pfp {
-                Some(storage.store_public_pfp(user, pfp, format).await?)
-            } else {
-                None
-            }
-        };
-
-        use schema::creatordata::dsl as cd_dsl;
-
-        diesel::insert_into(cd_dsl::creatordata)
-            .values(&CreatorData {
+        diesel::insert_into(cp_dsl::creatorprofile)
+            .values(&CreatorProfile {
                 user_id: user.id,
                 given_name,
                 family_name,
@@ -252,25 +232,339 @@ impl<'d> CreatorData<'d> {
                 profile_desc,
                 content_desc,
                 audience_desc,
-                pfp_path: pfp_path.as_ref().map(|path| path.as_str()),
+                pfp_path: pfp_path.as_deref(),
                 embedding: embedding.into(),
             })
-            .on_conflict(cd_dsl::user_id)
+            .on_conflict(cp_dsl::user_id)
             .do_update()
             .set((
-                cd_dsl::given_name.eq(excluded(cd_dsl::given_name)),
-                cd_dsl::family_name.eq(excluded(cd_dsl::family_name)),
-                cd_dsl::pronouns.eq(excluded(cd_dsl::pronouns)),
-                cd_dsl::profile_desc.eq(excluded(cd_dsl::profile_desc)),
-                cd_dsl::content_desc.eq(excluded(cd_dsl::content_desc)),
-                cd_dsl::audience_desc.eq(excluded(cd_dsl::audience_desc)),
-                cd_dsl::pfp_path.eq(excluded(cd_dsl::pfp_path)),
-                cd_dsl::embedding.eq(excluded(cd_dsl::embedding)),
+                cp_dsl::given_name.eq(excluded(cp_dsl::given_name)),
+                cp_dsl::family_name.eq(excluded(cp_dsl::family_name)),
+                cp_dsl::pronouns.eq(excluded(cp_dsl::pronouns)),
+                cp_dsl::profile_desc.eq(excluded(cp_dsl::profile_desc)),
+                cp_dsl::content_desc.eq(excluded(cp_dsl::content_desc)),
+                cp_dsl::audience_desc.eq(excluded(cp_dsl::audience_desc)),
+                cp_dsl::pfp_path.eq(excluded(cp_dsl::pfp_path)),
+                cp_dsl::embedding.eq(excluded(cp_dsl::embedding)),
             ))
             .execute(conn)
             .await?;
 
         Ok(())
+    }
+}
+
+#[derive(Clone, Queryable, serde::Serialize)]
+#[diesel(table_name = schema::creatorprofile)]
+#[diesel(table_name = schema::companyuserprofile)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct UserProfile {
+    pub given_name: String,
+    pub family_name: String,
+    pub pronouns: String,
+    pub pfp_path: Option<String>,
+}
+
+impl UserProfile {
+    pub async fn for_user(
+        user: User,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Option<Self>, Error> {
+        use schema::creatorprofile::dsl as cp_dsl;
+
+        let creator_profile = cp_dsl::creatorprofile
+            .filter(cp_dsl::user_id.eq(user.id))
+            .select((
+                cp_dsl::given_name,
+                cp_dsl::family_name,
+                cp_dsl::pronouns,
+                cp_dsl::pfp_path,
+            ))
+            .first(conn)
+            .await
+            .optional()?;
+
+        use schema::companyuserprofile::dsl as cup_dsl;
+
+        let company_user_profile = cup_dsl::companyuserprofile
+            .filter(cup_dsl::user_id.eq(user.id))
+            .select((
+                cup_dsl::given_name,
+                cup_dsl::family_name,
+                cup_dsl::pronouns,
+                cup_dsl::pfp_path,
+            ))
+            .first(conn)
+            .await
+            .optional()?;
+
+        Ok(creator_profile.or(company_user_profile))
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct UserInfo {
+    pub profile: UserProfile,
+    pub companies: Vec<Uuid>,
+}
+
+impl UserInfo {
+    pub async fn for_user(
+        user: User,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Option<Self>, Error> {
+        let Some(profile) = UserProfile::for_user(user, conn).await? else {
+            return Ok(None);
+        };
+
+        use schema::companyuser::dsl as cu_dsl;
+
+        Ok(Some(UserInfo {
+            profile,
+            companies: cu_dsl::companyuser
+                .filter(cu_dsl::user_id.eq(user.id))
+                .select(cu_dsl::company_id)
+                .load(conn)
+                .await?,
+        }))
+    }
+}
+
+#[derive(Clone, Insertable, AsChangeset)]
+#[diesel(table_name = schema::company)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct Company<'c> {
+    pub full_name: &'c str,
+    pub banner_desc: &'c str,
+    pub logo_url: Option<&'c str>,
+    embedding: Vector,
+}
+
+impl<'c> Company<'c> {
+    pub async fn users_in(
+        company_id: Uuid,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Vec<Uuid>, Error> {
+        use schema::companyuser::dsl as cu_dsl;
+
+        Ok(cu_dsl::companyuser
+            .filter(cu_dsl::company_id.eq(company_id))
+            .select(cu_dsl::user_id)
+            .load(conn)
+            .await?)
+    }
+
+    fn format_creator_descriptions(banner_desc: &str) -> String {
+        format!("Question: Who are we?\nAnswer: {banner_desc}")
+    }
+
+    pub async fn insert(
+        full_name: &str,
+        banner_desc: &str,
+        logo_hidden: Option<&str>,
+        logo: Option<(DynamicImage, ImageFormat)>,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+        encoder: Encoder,
+        storage: Storage,
+    ) -> Result<Uuid, Error> {
+        let embedding_desc = Self::format_creator_descriptions(banner_desc);
+        let embedding = encoder.encode(embedding_desc).await?;
+
+        use schema::company::dsl as c_dsl;
+
+        let company_id = diesel::insert_into(c_dsl::company)
+            .values(&Company {
+                full_name,
+                banner_desc,
+                logo_url: None,
+                embedding: embedding.into(),
+            })
+            .returning(c_dsl::id)
+            .load(conn)
+            .await?
+            .pop()
+            .expect("No company id was returned");
+
+        let logo_path = storage
+            .store_public_image(Folder::Logo, company_id, logo_hidden, logo)
+            .await?;
+
+        if let Some(logo_path) = logo_path {
+            diesel::update(c_dsl::company)
+                .set(c_dsl::logo_url.eq(logo_path))
+                .filter(c_dsl::id.eq(company_id))
+                .execute(conn)
+                .await?;
+        }
+
+        Ok(company_id)
+    }
+
+    pub async fn update(
+        company_id: Uuid,
+        full_name: &str,
+        banner_desc: &str,
+        logo_hidden: Option<&str>,
+        logo: Option<(DynamicImage, ImageFormat)>,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+        encoder: Encoder,
+        storage: Storage,
+    ) -> Result<(), Error> {
+        let embedding_desc = Self::format_creator_descriptions(banner_desc);
+        let embedding = encoder.encode(embedding_desc).await?;
+
+        use schema::company::dsl as c_dsl;
+
+        let logo_path = storage
+            .store_public_image(Folder::Logo, company_id, logo_hidden, logo)
+            .await?;
+
+        diesel::update(c_dsl::company)
+            .set(&Company {
+                full_name,
+                banner_desc,
+                logo_url: logo_path.as_deref(),
+                embedding: embedding.into(),
+            })
+            .filter(c_dsl::id.eq(company_id))
+            .execute(conn)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete(
+        company_id: Uuid,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<(), Error> {
+        use schema::company::dsl as c_dsl;
+
+        diesel::delete(c_dsl::company)
+            .filter(c_dsl::id.eq(company_id))
+            .execute(conn)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn add_user(
+        company_id: Uuid,
+        user: User,
+        is_admin: bool,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<(), Error> {
+        use schema::companyuser::dsl as cu_dsl;
+
+        diesel::insert_into(cu_dsl::companyuser)
+            .values((
+                cu_dsl::company_id.eq(company_id),
+                cu_dsl::user_id.eq(user.id),
+                cu_dsl::is_admin.eq(is_admin),
+            ))
+            .execute(conn)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn insert_update_user_profile(
+        user: User,
+        given_name: &str,
+        family_name: &str,
+        pronouns: &str,
+        pfp_hidden: Option<&str>,
+        pfp: Option<(DynamicImage, ImageFormat)>,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+        storage: Storage,
+    ) -> Result<(), Error> {
+        use schema::companyuserprofile::dsl as cup_dsl;
+
+        let pfp_path = storage
+            .store_public_image(Folder::ProfilePicture, user.id, pfp_hidden, pfp)
+            .await?;
+
+        diesel::insert_into(cup_dsl::companyuserprofile)
+            .values((
+                cup_dsl::user_id.eq(user.id),
+                cup_dsl::given_name.eq(given_name),
+                cup_dsl::family_name.eq(family_name),
+                cup_dsl::pronouns.eq(pronouns),
+                cup_dsl::pfp_path.eq(pfp_path),
+            ))
+            .on_conflict(cup_dsl::user_id)
+            .do_update()
+            .set((
+                cup_dsl::given_name.eq(excluded(cup_dsl::given_name)),
+                cup_dsl::family_name.eq(excluded(cup_dsl::family_name)),
+                cup_dsl::pronouns.eq(excluded(cup_dsl::pronouns)),
+                cup_dsl::pfp_path.eq(excluded(cup_dsl::pfp_path)),
+            ))
+            .execute(conn)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn invite_by_email(
+        company_id: Uuid,
+        google_email: String,
+        is_admin: bool,
+        from_user: User,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<(), Error> {
+        use schema::companyuserinvitation::dsl as cui_dsl;
+
+        diesel::insert_into(cui_dsl::companyuserinvitation)
+            .values((
+                cui_dsl::company_id.eq(company_id),
+                cui_dsl::invited_google_email.eq(google_email),
+                cui_dsl::will_be_given_admin.eq(is_admin),
+                cui_dsl::from_user_id.eq(from_user.id),
+            ))
+            .execute(conn)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn uninvite_by_email(
+        company_id: Uuid,
+        google_email: String,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<(), Error> {
+        use schema::companyuserinvitation::dsl as cui_dsl;
+
+        diesel::delete(cui_dsl::companyuserinvitation)
+            .filter(
+                cui_dsl::company_id
+                    .eq(company_id)
+                    .and(cui_dsl::invited_google_email.eq(google_email)),
+            )
+            .execute(conn)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn is_admin(
+        company_id: Uuid,
+        user: User,
+        conn: &mut impl AsyncConnection<Backend = Pg>,
+    ) -> Result<Option<bool>, Error> {
+        use schema::companyuser::dsl as cu_dsl;
+
+        let is_admin = cu_dsl::companyuser
+            .filter(
+                cu_dsl::company_id
+                    .eq(company_id)
+                    .and(cu_dsl::user_id.eq(user.id)),
+            )
+            .select(cu_dsl::is_admin)
+            .first(conn)
+            .await
+            .optional()?;
+
+        Ok(is_admin)
     }
 }
 

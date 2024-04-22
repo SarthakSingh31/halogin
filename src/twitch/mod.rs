@@ -1,6 +1,7 @@
-use axum::{routing, Json, Router};
+use axum::{http::HeaderMap, routing, Json, Router};
 use diesel::pg::Pg;
 use diesel_async::AsyncConnection;
+use futures::StreamExt;
 use oauth2::{AccessToken, RefreshToken};
 use time::PrimitiveDateTime;
 
@@ -99,7 +100,7 @@ impl OAuthAccountHelper for TwitchSession {
 pub fn router() -> Router<crate::state::AppState> {
     Router::new()
         .route("/login", routing::post(TwitchSession::login))
-        .route("/account", routing::get(get_twitch_accounts))
+        .route("/account", routing::get(Account::list))
 }
 
 #[derive(serde::Serialize)]
@@ -117,7 +118,7 @@ impl GetDetail for Account {
     async fn get<'g>(
         account: &'g mut Self::Account,
         client: &'g reqwest::Client,
-        conn: &'g mut (impl AsyncConnection<Backend = Pg> + 'static),
+        headers: HeaderMap,
     ) -> Result<Self, Error> {
         #[derive(serde::Deserialize)]
         struct UserResp {
@@ -130,42 +131,48 @@ impl GetDetail for Account {
             display_name: String,
             profile_image_url: String,
         }
+        #[derive(serde::Deserialize)]
+        struct SubsriberResp {
+            total: usize,
+        }
+        #[derive(serde::Deserialize)]
+        struct FollowerResp {
+            total: usize,
+        }
+
         let user_req = client
             .get(format!(
                 "https://api.twitch.tv/helix/users?id={}",
                 account.id
             ))
-            .headers(account.headers(conn).await?)
+            .headers(headers.clone())
             .build()?;
-        let mut user_resp: UserResp = client.execute(user_req).await?.json().await?;
-
-        #[derive(serde::Deserialize)]
-        struct SubsriberResp {
-            total: usize,
-        }
         let subscriber_req = client
             .get(format!(
                 "https://api.twitch.tv/helix/subscriptions?broadcaster_id={}",
                 account.id
             ))
-            .headers(account.headers(conn).await?)
+            .headers(headers.clone())
             .build()?;
-        let subscriber_resp: SubsriberResp = client.execute(subscriber_req).await?.json().await?;
-
-        #[derive(serde::Deserialize)]
-        struct FollowerResp {
-            total: usize,
-        }
         let follower_req = client
             .get(format!(
                 "https://api.twitch.tv/helix/channels/followers?broadcaster_id={}",
                 account.id
             ))
-            .headers(account.headers(conn).await?)
+            .headers(headers)
             .build()?;
-        let follower_resp: FollowerResp = client.execute(follower_req).await?.json().await?;
 
-        let user_resp = user_resp
+        let (user_resp, subscriber_resp, follower_resp): (
+            Result<UserResp, Error>,
+            Result<SubsriberResp, Error>,
+            Result<FollowerResp, Error>,
+        ) = tokio::join!(
+            async { Ok(client.execute(user_req).await?.json().await?) },
+            async { Ok(client.execute(subscriber_req).await?.json().await?) },
+            async { Ok(client.execute(follower_req).await?.json().await?) },
+        );
+
+        let user_resp = user_resp?
             .data
             .pop()
             .expect("Got no users in the user response");
@@ -174,22 +181,33 @@ impl GetDetail for Account {
             id: user_resp.id,
             display_name: user_resp.display_name,
             profile_image_url: user_resp.profile_image_url,
-            follower_count: follower_resp.total,
-            subscriber_count: subscriber_resp.total,
+            follower_count: follower_resp?.total,
+            subscriber_count: subscriber_resp?.total,
         })
     }
 }
 
-async fn get_twitch_accounts(
-    user: User,
-    DbConn { mut conn }: DbConn,
-) -> Result<Json<Vec<Account>>, Error> {
-    let mut accounts = Vec::default();
+impl Account {
+    async fn list(user: User, DbConn { mut conn }: DbConn) -> Result<Json<Vec<Account>>, Error> {
+        let accounts = TwitchAccount::list(user, &mut conn).await?;
 
-    let client = reqwest::Client::new();
-    for mut account in TwitchAccount::list(user, &mut conn).await? {
-        accounts.push(Account::get(&mut account, &client, &mut conn).await?);
+        let mut acc_and_headers = Vec::with_capacity(accounts.len());
+        for mut account in accounts {
+            let headers = account.headers(&mut conn).await?;
+            acc_and_headers.push((account, headers));
+        }
+        let mut accounts = Vec::default();
+        let mut accounts_iter = futures::stream::iter(acc_and_headers.into_iter())
+            .map(|(mut account, headers)| {
+                let client = reqwest::Client::default();
+                async move { Self::get(&mut account, &client, headers).await }
+            })
+            .buffer_unordered(10);
+
+        while let Some(account) = accounts_iter.next().await {
+            accounts.push(account?);
+        }
+
+        Ok(Json(accounts))
     }
-
-    Ok(Json(accounts))
 }

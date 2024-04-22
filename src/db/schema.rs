@@ -72,8 +72,8 @@ diesel::table! {
         id -> Uuid,
         full_name -> Text,
         banner_desc -> Text,
-        logo_url -> Text,
-        industry -> Array<Nullable<Text>>,
+        logo_url -> Nullable<Text>,
+        embedding -> Vector,
         created_at -> Timestamp,
     }
 }
@@ -95,7 +95,34 @@ diesel::table! {
     use pgvector::sql_types::*;
     use super::super::sql_types::*;
 
-    creatordata (user_id) {
+    companyuserinvitation (invited_google_email, company_id) {
+        invited_google_email -> Text,
+        company_id -> Uuid,
+        will_be_given_admin -> Bool,
+        from_user_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
+    companyuserprofile (user_id) {
+        user_id -> Uuid,
+        given_name -> Text,
+        family_name -> Text,
+        pronouns -> Text,
+        pfp_path -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::*;
+    use super::super::sql_types::*;
+
+    creatorprofile (user_id) {
         user_id -> Uuid,
         given_name -> Text,
         family_name -> Text,
@@ -183,7 +210,10 @@ diesel::joinable!(chatroom -> company (company_id));
 diesel::joinable!(chatroom -> inneruser (user_id));
 diesel::joinable!(companyuser -> company (company_id));
 diesel::joinable!(companyuser -> inneruser (user_id));
-diesel::joinable!(creatordata -> inneruser (user_id));
+diesel::joinable!(companyuserinvitation -> company (company_id));
+diesel::joinable!(companyuserinvitation -> inneruser (from_user_id));
+diesel::joinable!(companyuserprofile -> inneruser (user_id));
+diesel::joinable!(creatorprofile -> inneruser (user_id));
 diesel::joinable!(googleaccount -> inneruser (user_id));
 diesel::joinable!(innerusersession -> inneruser (user_id));
 diesel::joinable!(sessionfcmtoken -> innerusersession (session_token));
@@ -197,7 +227,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     chatroom,
     company,
     companyuser,
-    creatordata,
+    companyuserinvitation,
+    companyuserprofile,
+    creatorprofile,
     googleaccount,
     inneruser,
     innerusersession,

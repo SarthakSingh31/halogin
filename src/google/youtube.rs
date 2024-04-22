@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
-use axum::Json;
-use diesel::pg::Pg;
-use diesel_async::AsyncConnection;
+use axum::{http::HeaderMap, Json};
+use futures::StreamExt;
 
 use crate::{
     db::{GoogleAccount, GoogleAccountMeta, User},
@@ -26,7 +25,7 @@ impl GetDetail for Vec<Channel> {
     async fn get<'g>(
         account: &'g mut Self::Account,
         client: &'g reqwest::Client,
-        conn: &'g mut (impl AsyncConnection<Backend = Pg> + 'static),
+        headers: HeaderMap,
     ) -> Result<Self, Error> {
         #[derive(serde::Serialize, serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -52,7 +51,7 @@ impl GetDetail for Vec<Channel> {
 
         let req = client
                 .get("https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true&maxResults=50")
-                .headers(account.headers(conn).await?)
+                .headers(headers)
                 .build()?;
         let resp: Response = client.execute(req).await?.json().await?;
         assert!(resp.page_info.total_results <= resp.page_info.results_per_page);
@@ -77,14 +76,20 @@ impl Channel {
         let accounts = GoogleAccount::list(user, &mut conn).await?;
         let mut channels = Vec::default();
 
-        let client = reqwest::Client::default();
-
+        let mut acc_and_headers = Vec::with_capacity(accounts.len());
         for mut account in accounts {
-            channels.extend(
-                Vec::<Self>::get(&mut account, &client, &mut conn)
-                    .await?
-                    .into_iter(),
-            );
+            let headers = account.headers(&mut conn).await?;
+            acc_and_headers.push((account, headers));
+        }
+        let mut channels_iter = futures::stream::iter(acc_and_headers.into_iter())
+            .map(|(mut account, headers)| {
+                let client = reqwest::Client::default();
+                async move { Vec::<Self>::get(&mut account, &client, headers).await }
+            })
+            .buffer_unordered(10);
+
+        while let Some(channel) = channels_iter.next().await {
+            channels.extend(channel?);
         }
 
         Ok(Json(channels))

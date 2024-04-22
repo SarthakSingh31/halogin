@@ -3,13 +3,14 @@ use std::task::{Context, Poll};
 
 use crate::{db::User, Error};
 use axum::body::Bytes;
-use axum::http::{HeaderValue, Request, Response};
+use axum::http::{HeaderMap, HeaderValue, Request, Response};
 use diesel::pg::Pg;
 use diesel_async::AsyncConnection;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use tower::Service;
 use tower_http::services::ServeDir;
 
+pub mod formdata;
 pub mod oauth;
 
 use oauth::OAuthAccountHelper;
@@ -64,7 +65,7 @@ pub trait GetDetail: Sized {
     fn get<'g>(
         account: &'g mut Self::Account,
         client: &'g reqwest::Client,
-        conn: &'g mut (impl AsyncConnection<Backend = Pg> + 'static),
+        headers: HeaderMap,
     ) -> impl futures::Future<Output = Result<Self, Error>> + Send + 'g;
 }
 

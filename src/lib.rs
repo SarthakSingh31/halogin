@@ -3,6 +3,7 @@
 #![feature(let_chains)]
 
 mod chat;
+mod company;
 mod creator;
 mod db;
 mod google;
@@ -27,8 +28,6 @@ use time::Duration;
 use tokio::sync::mpsc;
 use tower_http::services::ServeDir;
 
-build_svelte::build_svelte!();
-
 pub const SESSION_COOKIE_NAME: &str = "HALOGIN-SESSION";
 pub const SESSION_COOKIE_DURATION: Duration = Duration::days(90);
 
@@ -50,12 +49,17 @@ pub async fn run() {
         async fn maintain(conn: &mut impl AsyncConnection<Backend = Pg>) -> Result<(), Error> {
             db::UserSession::prune_expired(conn).await?;
 
-            diesel::sql_query("REINDEX INDEX CONCURRENTLY creator_data_embedding;")
+            diesel::sql_query("REINDEX INDEX CONCURRENTLY creator_profile_embedding;")
                 .execute(conn)
                 .await?;
-            diesel::sql_query("VACUUM CreatorData;")
+            diesel::sql_query("VACUUM CreatorProfile;")
                 .execute(conn)
                 .await?;
+
+            diesel::sql_query("REINDEX INDEX CONCURRENTLY company_embedding;")
+                .execute(conn)
+                .await?;
+            diesel::sql_query("VACUUM Company;").execute(conn).await?;
 
             Ok(())
         }
@@ -143,6 +147,7 @@ pub async fn run() {
 
     let app = Router::new()
         .nest("/api/v1/creator", creator::router())
+        .nest("/api/v1/company", company::router())
         .nest("/api/v1/google", google::router())
         .nest("/api/v1/twitch", twitch::router())
         .nest("/api/v1/storage", storage::router())

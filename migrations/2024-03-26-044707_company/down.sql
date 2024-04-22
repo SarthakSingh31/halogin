@@ -16,6 +16,10 @@ DROP TABLE SessionFcmToken;
 
 DROP TABLE ChatRoom;
 
+DROP TABLE CompanyUserInvitation;
+
+DROP TABLE CompanyUserProfile;
+
 DROP TABLE CompanyUser;
 
 DROP TABLE Company;

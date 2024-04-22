@@ -12,49 +12,7 @@ use diesel_async::{AsyncConnection, RunQueryDsl};
 use time::PrimitiveDateTime;
 use uuid::Uuid;
 
-use crate::{db::User, Error};
-
-#[derive(Insertable, Queryable)]
-#[diesel(table_name = crate::schema::inneruserdata)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct UserData {
-    pub given_name: String,
-    pub family_name: String,
-    pub banner_desc: String,
-}
-
-impl UserData {
-    pub async fn from_user(
-        user: User,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<Option<Self>, Error> {
-        use crate::schema::inneruserdata::dsl as dsl_iud;
-
-        let user = dsl_iud::inneruserdata
-            .select((
-                dsl_iud::given_name,
-                dsl_iud::family_name,
-                dsl_iud::banner_desc,
-            ))
-            .filter(dsl_iud::id.eq(user.id))
-            .first(conn)
-            .await
-            .optional()?;
-
-        Ok(user)
-    }
-}
-
-#[derive(Insertable, Queryable)]
-#[diesel(table_name = crate::schema::company)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct Company<'c> {
-    pub id: Uuid,
-    pub full_name: &'c str,
-    pub banner_desc: &'c str,
-    pub logo_url: &'c str,
-    pub industry: &'c [Option<&'c str>],
-}
+use crate::Error;
 
 #[derive(
     Debug,
@@ -99,64 +57,6 @@ impl FromSql<crate::schema::sql_types::Contractofferstatus, Pg> for ContractOffe
             b"ApprovedByCompany" => Ok(ContractOfferStatus::ApprovedByCompany),
             _ => Err("Unrecognized enum variant".into()),
         }
-    }
-}
-
-#[derive(Clone, Insertable, Queryable, AsChangeset)]
-#[diesel(table_name = crate::schema::companyuser)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct CompanyUser {
-    pub company_id: Uuid,
-    pub user_id: Uuid,
-    pub is_admin: bool,
-}
-
-impl CompanyUser {
-    pub async fn company_for_user(
-        user_id: Uuid,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<Vec<CompanyInfo>, Error> {
-        use crate::schema::companyuser::dsl as dsl_cu;
-
-        let company_ids = dsl_cu::companyuser
-            .filter(dsl_cu::user_id.eq(user_id))
-            .select(dsl_cu::company_id)
-            .load::<Uuid>(conn)
-            .await?;
-
-        let mut companies = Vec::default();
-
-        use crate::schema::company::dsl as dsl_c;
-
-        for company_id in company_ids {
-            let (name, logo_url) = dsl_c::company
-                .filter(dsl_c::id.eq(company_id))
-                .select((dsl_c::full_name, dsl_c::logo_url))
-                .first::<(String, String)>(conn)
-                .await?;
-            companies.push(CompanyInfo {
-                id: company_id,
-                name,
-                logo_url,
-            });
-        }
-
-        Ok(companies)
-    }
-
-    pub async fn users_in_company(
-        company_id: Uuid,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<Vec<Uuid>, Error> {
-        use crate::schema::companyuser::dsl as dsl_cu;
-
-        let users = dsl_cu::companyuser
-            .filter(dsl_cu::company_id.eq(company_id))
-            .select(dsl_cu::user_id)
-            .load::<Uuid>(conn)
-            .await?;
-
-        Ok(users)
     }
 }
 
@@ -243,37 +143,6 @@ impl ChatRoom {
             .await?;
 
         Ok(rooms)
-    }
-}
-
-#[derive(serde::Serialize)]
-pub struct CompanyInfo {
-    pub id: Uuid,
-    pub name: String,
-    pub logo_url: String,
-}
-
-#[derive(serde::Serialize)]
-pub struct UserInfo {
-    pub given_name: String,
-    pub family_name: String,
-    pub company: Vec<CompanyInfo>,
-}
-
-impl UserInfo {
-    pub async fn from_id(
-        user_id: Uuid,
-        conn: &mut impl AsyncConnection<Backend = Pg>,
-    ) -> Result<Option<Self>, Error> {
-        if let Some(user_data) = UserData::from_user(User { id: user_id }, conn).await? {
-            Ok(Some(UserInfo {
-                given_name: user_data.given_name,
-                family_name: user_data.family_name,
-                company: CompanyUser::company_for_user(user_id, conn).await?,
-            }))
-        } else {
-            Ok(None)
-        }
     }
 }
 

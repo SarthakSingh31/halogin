@@ -1,4 +1,4 @@
-DROP TABLE CreatorData;
+DROP TABLE CreatorProfile;
 
 DROP TABLE InnerUserSession;
 

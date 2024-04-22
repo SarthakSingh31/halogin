@@ -1,3 +1,4 @@
+#[cfg(feature = "build-webpage")]
 build_svelte::build_svelte!();
 
 #[tokio::main]

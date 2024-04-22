@@ -4,10 +4,12 @@ CREATE TABLE Company (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     full_name TEXT NOT NULL,
     banner_desc TEXT NOT NULL,
-    logo_url TEXT NOT NULL,
-    industry TEXT [] NOT NULL,
+    logo_url TEXT,
+    embedding VECTOR(1536) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX company_embedding ON Company USING hnsw (embedding vector_ip_ops) WITH (m = 40, ef_construction = 160);
 
 CREATE TABLE CompanyUser (
     company_id UUID NOT NULL,
@@ -16,6 +18,25 @@ CREATE TABLE CompanyUser (
     CONSTRAINT fk_company FOREIGN KEY (company_id) REFERENCES Company(id) ON DELETE CASCADE,
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE,
     CONSTRAINT pk_company_user PRIMARY KEY (company_id, user_id)
+);
+
+CREATE TABLE CompanyUserProfile (
+    user_id UUID PRIMARY KEY,
+    given_name TEXT NOT NULL,
+    family_name TEXT NOT NULL,
+    pronouns TEXT NOT NULL,
+    pfp_path TEXT,
+    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
+);
+
+CREATE TABLE CompanyUserInvitation (
+    invited_google_email TEXT NOT NULL,
+    company_id UUID NOT NULL,
+    will_be_given_admin BOOLEAN NOT NULL,
+    from_user_id UUID NOT NULL,
+    CONSTRAINT fk_company FOREIGN KEY (company_id) REFERENCES Company(id) ON DELETE CASCADE,
+    CONSTRAINT fk_user FOREIGN KEY (from_user_id) REFERENCES InnerUser(id) ON DELETE CASCADE,
+    CONSTRAINT pk_invited_user PRIMARY KEY (invited_google_email, company_id)
 );
 
 CREATE TABLE ChatRoom (
