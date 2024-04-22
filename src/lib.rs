@@ -9,7 +9,6 @@ mod db;
 mod google;
 pub mod models;
 pub mod schema;
-mod search;
 mod state;
 mod storage;
 mod twitch;
