@@ -10,7 +10,7 @@
     } from "flowbite-svelte";
     import default_img from "$lib/default.jpg";
     import { onMount } from "svelte";
-    import CreatorCard from "../creator-card.svelte";
+    import CreatorCard from "../card.svelte";
     import GoogleLogin from "../../GoogleLogin.svelte";
     import TwitchLogin from "../../TwitchLogin.svelte";
 
@@ -32,6 +32,17 @@
         };
     });
 
+    let givenName = "";
+    let familyName = "";
+    let pronouns = "";
+
+    let profileDescValue = "";
+    let contentDescValue = "";
+    let audienceDescValue = "";
+
+    let currentImages: { url: string; file: File | null; isRemote: Boolean }[] =
+        [];
+
     onMount(() => {
         fetch("/api/v1/google/youtube/channel")
             .then((resp) => resp.json())
@@ -42,6 +53,23 @@
             .then((resp) => resp.json())
             .then((accounts) => {
                 twitchAccounts = accounts;
+            });
+        fetch("/api/v1/creator/profile")
+            .then((resp) => resp.json())
+            .then((profile) => {
+                givenName = profile.given_name;
+                familyName = profile.family_name;
+                pronouns = profile.pronouns;
+
+                profileDescValue = profile.profile_desc;
+                contentDescValue = profile.content_desc;
+                audienceDescValue = profile.audience_desc;
+
+                currentImages.push({
+                    url: profile.pfp_path,
+                    file: null,
+                    isRemote: false,
+                });
             });
     });
 
@@ -75,6 +103,7 @@
 
     $: images = [
         ...file_images,
+        ...currentImages,
         ...youtubePfpImages,
         ...twitchPfpImages,
         { url: default_img, file: null, isRemote: false },
@@ -107,14 +136,6 @@
             twitchAccounts = [...twitchAccounts, data];
         }
     }
-
-    let givenName = "";
-    let familyName = "";
-    let pronouns = "";
-
-    let profileDescValue = "";
-    let contentDescValue = "";
-    let audienceDescValue = "";
 </script>
 
 <div class="grid md:grid-cols-2">

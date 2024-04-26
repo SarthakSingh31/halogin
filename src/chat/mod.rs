@@ -7,7 +7,7 @@ use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::{
-    db::{Company, User, UserInfo},
+    db::{company, User, UserInfo},
     models,
     state::{DbConn, MsgEmitter},
     ws::{WsError, WsFunctions},
@@ -117,7 +117,7 @@ async fn create(
         }
     };
 
-    let users_in_company = Company::users_in(company_id, &mut conn).await?;
+    let users_in_company = company::users_in(company_id, &mut conn).await?;
     if users_in_company.iter().any(|id| *id == user_id) {
         return Err(WsError::Custom {
             reason: "Cannot make a chat with a user of the same company".into(),

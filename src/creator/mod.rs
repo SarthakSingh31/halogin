@@ -1,7 +1,7 @@
-use axum::{extract::Multipart, http::StatusCode, routing, Router};
+use axum::{extract::Multipart, http::StatusCode, routing, Json, Router};
 
 use crate::{
-    db::{CreatorProfile, Encoder, User},
+    db::{CreatorProfileInsert, CreatorProfileQuery, Encoder, User},
     state::DbConn,
     storage::Storage,
     utils::formdata::ImageFileBuilder,
@@ -28,7 +28,7 @@ async fn insert_update_profile(
 
     let missing_fields = builder.missing_fields(&PROFILE_FIELDS);
     if missing_fields.is_empty() {
-        CreatorProfile::insert_update(
+        CreatorProfileInsert::insert_update(
             user,
             &builder.fields[PROFILE_FIELDS[0]],
             &builder.fields[PROFILE_FIELDS[1]],
@@ -53,6 +53,23 @@ async fn insert_update_profile(
     })
 }
 
+async fn get_profile(
+    user: User,
+    DbConn { mut conn }: DbConn,
+) -> Result<Json<CreatorProfileQuery>, Error> {
+    if let Some(profile) = CreatorProfileQuery::get(user, &mut conn).await? {
+        return Ok(Json(profile));
+    } else {
+        Err(Error::Custom {
+            status_code: StatusCode::NOT_FOUND,
+            error: "There is no creator profile informatio for you".into(),
+        })
+    }
+}
+
 pub fn router() -> Router<crate::state::AppState> {
-    Router::new().route("/profile", routing::post(insert_update_profile))
+    Router::new().route(
+        "/profile",
+        routing::get(get_profile).post(insert_update_profile),
+    )
 }

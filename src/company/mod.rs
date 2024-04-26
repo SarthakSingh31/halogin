@@ -3,10 +3,11 @@ use axum::{
     http::StatusCode,
     routing, Json, Router,
 };
+use fxhash::FxHashMap;
 use uuid::Uuid;
 
 use crate::{
-    db::{Company, Encoder, User},
+    db::{company, Encoder, User},
     state::DbConn,
     storage::Storage,
     utils::formdata::ImageFileBuilder,
@@ -15,6 +16,26 @@ use crate::{
 
 const PROFILE_FIELDS: &'static [&'static str] = &["given_name", "family_name", "pronouns"];
 const COMPANY_FIELDS: &'static [&'static str] = &["full_name", "banner_desc"];
+
+async fn list_users(
+    user: User,
+    DbConn { mut conn }: DbConn,
+    Path(company_id): Path<Uuid>,
+) -> Result<Json<FxHashMap<Uuid, company::CompanyUser>>, Error> {
+    if !company::is_admin(company_id, user, &mut conn)
+        .await?
+        .unwrap_or(false)
+    {
+        return Err(Error::Custom {
+            status_code: StatusCode::UNAUTHORIZED,
+            error: "You are not an admin of this company".into(),
+        });
+    }
+
+    let users = company::CompanyUser::list(company_id, &mut conn).await?;
+
+    Ok(Json(users.collect()))
+}
 
 async fn insert_update_profile(
     user: User,
@@ -26,7 +47,7 @@ async fn insert_update_profile(
 
     let missing_fields = builder.missing_fields(&PROFILE_FIELDS);
     if missing_fields.is_empty() {
-        Company::insert_update_user_profile(
+        company::insert_update_user_profile(
             user,
             &builder.fields[PROFILE_FIELDS[0]],
             &builder.fields[PROFILE_FIELDS[1]],
@@ -63,7 +84,7 @@ async fn insert_company(
 
     let missing_fields = builder.missing_fields(&COMPANY_FIELDS);
     if missing_fields.is_empty() {
-        let company_id = Company::insert(
+        let company_id = company::insert(
             &builder.fields[COMPANY_FIELDS[0]],
             &builder.fields[COMPANY_FIELDS[1]],
             builder.fields.get("logo_hidden").map(|s| s.as_str()),
@@ -74,8 +95,8 @@ async fn insert_company(
         )
         .await?;
 
-        if let Err(err) = Company::add_user(company_id, user, true, &mut conn).await {
-            Company::delete(company_id, &mut conn).await?;
+        if let Err(err) = company::add_user(company_id, user, true, &mut conn).await {
+            company::delete(company_id, &mut conn).await?;
 
             return Err(err);
         }
@@ -97,7 +118,7 @@ async fn update_company(
     storage: Storage,
     multipart: Multipart,
 ) -> Result<(), Error> {
-    if !Company::is_admin(company_id, user, &mut conn)
+    if !company::is_admin(company_id, user, &mut conn)
         .await?
         .unwrap_or(false)
     {
@@ -111,7 +132,7 @@ async fn update_company(
 
     let missing_fields = builder.missing_fields(&COMPANY_FIELDS);
     if missing_fields.is_empty() {
-        Company::update(
+        company::update(
             company_id,
             &builder.fields[COMPANY_FIELDS[0]],
             &builder.fields[COMPANY_FIELDS[1]],
@@ -144,7 +165,7 @@ async fn invite_user_to_company(
     DbConn { mut conn }: DbConn,
     Json(req): Json<InviteRequest>,
 ) -> Result<(), Error> {
-    if !Company::is_admin(req.company_id, user, &mut conn)
+    if !company::is_admin(req.company_id, user, &mut conn)
         .await?
         .unwrap_or(false)
     {
@@ -154,7 +175,7 @@ async fn invite_user_to_company(
         });
     }
 
-    Company::invite_by_email(
+    company::invite_by_email(
         req.company_id,
         req.google_email,
         req.is_admin,
@@ -177,7 +198,7 @@ async fn uninvite_user_to_company(
     DbConn { mut conn }: DbConn,
     Json(req): Json<UninviteRequest>,
 ) -> Result<(), Error> {
-    if !Company::is_admin(req.company_id, user, &mut conn)
+    if !company::is_admin(req.company_id, user, &mut conn)
         .await?
         .unwrap_or(false)
     {
@@ -187,7 +208,7 @@ async fn uninvite_user_to_company(
         });
     }
 
-    Company::uninvite_by_email(req.company_id, req.google_email, &mut conn).await?;
+    company::uninvite_by_email(req.company_id, req.google_email, &mut conn).await?;
 
     Ok(())
 }
@@ -197,6 +218,7 @@ pub fn router() -> Router<crate::state::AppState> {
         .route("/", routing::post(insert_company))
         .route("/user-profile", routing::post(insert_update_profile))
         .route("/:company-id", routing::patch(update_company))
+        .route("/:company-id/user", routing::get(list_users))
         .route(
             "/:company-id/invite",
             routing::post(invite_user_to_company).delete(uninvite_user_to_company),
