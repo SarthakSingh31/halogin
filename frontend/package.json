@@ -18,7 +18,7 @@
     "firebase": "^10.10.0",
     "flowbite": "^2.2.1",
     "flowbite-svelte": "^0.44.22",
-    "flowbite-svelte-icons": "^1.0.2",
+    "flowbite-svelte-icons": "^1.6.0",
     "google-oauth-gsi": "^4.0.1",
     "postcss": "^8.4.32",
     "postcss-load-config": "^5.0.2",

@@ -1,148 +1,37 @@
 <script lang="ts">
+  import landingPeople from "$lib/landingPeople.png";
 </script>
 
-<section class="bg-center bg-blend-multiply py-40 lg:py-60 color">
-  <div
-    class="flex px-4 mx-auto max-w-screen-xl text-center flex-col lg:flex-row"
-  >
-    <div class="lg:w-2/3 pr-10 pl-0 flex flex-col justify-between">
-      <div>
-        <h1
-          class="mb-4 text-4xl font-extrabold tracking-tight leading-none md:text-5xl lg:text-6xl text-left text-green-600"
-        >
-          Welcome to Halogin-
-          <span class="text-black"> Where Creators And Brands Connect!</span>
-        </h1>
-        <p class="mb-8 text-lg font-normal text-gray-500 lg:text-xl text-left">
-          Join our platform to connect with brands, maximize your streams, and
-          unlock new opportunities in the world of content creation.
-        </p>
-      </div>
-      <div class="text-left"> 
-        <button class="bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-8 rounded-lg">Get Started</button> 
-      </div>
-    </div>
-    <div class="hidden lg:flex lg:flex-1 justify-center items-center">
-      <div class="bg-image bg-gray-500 rounded-full w-96 h-96 flex justify-center items-center text-white text-4xl font-semibold"></div>
-    </div>
-  </div>
-</section>
-
-<section class="bg-center bg-blend-multiply py-40 lg:py-60 color">
-  <div class="flex px-4 mx-auto max-w-screen-xl text-center">
+<main class="mx-20">
+  <section id="intro-section" class="flex items-center">
     <div>
-      <h2
-        class="mb-4 text-4xl font-extrabold tracking-tight leading-none md:text-5xl lg:text-6xl text-left text-green-600"
-      >
-        Worlds Top Creators At
-        <span class="mt-4"> Your Fingertips</span>
-      </h2>
-      <p class="mb-8 text-lg font-normal text-gray-500 lg:text-xl text-left"> 
-        Carlio brand is one of the most oil manufactureres, which is enaged in the prodution of high quality products with a history of more than decades in the industry. In order to get more information about other aspects and products of the Carlio brand, you can use the following buttons.
-      </p>
+      <h1 class="text-6xl text-white catamaran-700 mb-2">
+        Bringing <span class="creator-text">Creators</span> and
+        <span class="brand-text">Brands</span> together
+      </h1>
+      <span class="text-white hind-vadodara-regular text-xl">
+        Our platform connects talented content creators with brands seeking
+        powerful sponsorship opportunities. We use cutting-edge machine learning
+        to find perfect matches, empowering both sides to make lasting
+        connections.
+      </span>
     </div>
-  </div>
+    <img src={landingPeople} alt="People Meeting" />
+  </section>
+</main>
 
-  <div class="flex px-4 mx-auto max-w-screen-xl text-center">
-    <div class="grid grid-cols-2 grid-rows-2 gap-2">
-      <div class="text-left py-4 flex items-center px-4">
-        <span class="text-green-600 mr-2">&#10004;</span>
-        <div>
-          <h3 class="text-xl font-bold">
-            Access To A Diverse Pool Of Talent/Brands
-          </h3>
-          <p class="text-gray-700">
-            Connecting Creators With Brands For Collaboration
-          </p>
-        </div>
-      </div>
-      <div class=" text-left py-4 flex items-center px-4">
-        <span class="text-green-600 mr-2">&#10004;</span>
-        <div>
-          <h3 class="text-xl font-bold">Streamlined Collaboration Process</h3>
-          <p class="text-gray-700">
-            Easy Deal Discovery For Creators And Brands
-          </p>
-        </div>
-      </div>
-      <div class=" text-left py-4 flex items-center px-4">
-        <span class="text-green-600 mr-2">&#10004;</span>
-        <div>
-          <h3 class="text-xl font-bold">
-            Transparent Communication And Negotiation
-          </h3>
-          <p class="text-gray-700">
-            Connecting Creators With Brands For Collaborations
-          </p>
-        </div>
-      </div>
-      <div class=" text-left py-4 flex items-center px-4">
-        <span class="text-green-600 mr-2">&#10004;</span>
-        <div>
-          <h3 class="text-xl font-bold">Secure Transcations</h3>
-          <p class="text-gray-700">
-            Easy Deal Discovery For Creators And Brands
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="bg-center bg-blend-multiply py-40 lg:py-30 color">
-  <div class="flex justify-center items-center mb-8">
-    <div class="w-20 h-20 flex items-center justify-center bg-green-600 text-white rounded-full">
-      <span class="text-xl">1</span>
-    </div>
-    <div class="w-28 h-px bg-green-600"></div> 
-    <div class="w-20 h-20 flex items-center justify-center bg-green-600 text-white rounded-full">
-      <span class="text-xl">2</span>
-    </div>
-    <div class="w-28 h-px bg-green-600"></div> 
-    <div class="w-20 h-20 flex items-center justify-center bg-green-600 text-white rounded-full">
-      <span class="text-xl">3</span>
-    </div>
-    <div class="w-28 h-px bg-green-600"></div>
-    <div class="w-20 h-20 flex items-center justify-center bg-green-600 text-white rounded-full">
-      <span class="text-xl">4</span>
-    </div>
-  </div>
-
-  <div class="flex justify-center">
-    <div class="w-36 text-center mr-12">
-      <div class="w-12 h-12 bg-gray-200 rounded-full mx-auto mb-4"></div>
-      <p>Register your account</p>
-    </div>
-    <div class="w-36 text-center mr-12">
-      <div class="w-12 h-12 bg-gray-200 rounded-full mx-auto mb-4"></div>
-      <p>Setup your profile</p>
-    </div>
-    <div class="w-36 text-center mr-12">
-      <div class="w-12 h-12 bg-gray-200 rounded-full mx-auto mb-4"></div>
-      <p>Start exploring opportunities</p>
-    </div>
-    <div class="w-36 text-center">
-      <div class="w-12 h-12 bg-gray-200 rounded-full mx-auto mb-4"></div>
-      <p>Connect and Collaborate</p>
-    </div>
-  </div>
-  <div class="color py-20"></div>
-</section>
-
-<style>
-  .color {
-    background-color: #ecf0f3;
+<style lang="scss">
+  #intro-section {
+    img {
+      width: calc(50vw - 6rem);
+    }
   }
 
-  .bg-image {
-    background-image: url("../halogin.png");
-    background-size: contain;
-    background-repeat: no-repeat;
-    border: 4px solid gray;
-    mix-blend-mode: color-burn;
-    background-color: #f0f3ec;
-    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+  .creator-text {
+    color: #fdd825;
+  }
+
+  .brand-text {
+    color: #ff64b2;
   }
 </style>

@@ -79,6 +79,5 @@
 </script>
 
 <NavBar />
-<button on:click={requestNotifPerm}>notif</button>
 <Home />
-<Footer />
+<!-- <Footer /> -->

@@ -1,76 +1,92 @@
 <script>
-    import { Navbar, NavBrand, NavLi, NavUl, NavHamburger, ImagePlaceholder, Skeleton, TextPlaceholder, Button, Checkbox, Modal } from 'flowbite-svelte';
-    import Logo from "../lib/logo.svg";
+    import { Navbar, NavBrand, Checkbox, Modal } from "flowbite-svelte";
+    import { SearchOutline } from "flowbite-svelte-icons";
     import GoogleLogin from "./GoogleLogin.svelte";
     import TwitchLogin from "./TwitchLogin.svelte";
 
     let open = false;
     let keepLoggedIn = false;
+
+    let dropdown = "creators";
+
+    $: searchPlaceholder =
+        dropdown === "creators" ? "Find creators" : "Find brand deals";
 </script>
 
-
-
-<div class="relative px-8 ">
-    <Navbar class="px-2 sm:px-4 py-2.5 fixed w-full z-20 top-0 start-0 border-b">
-        <NavBrand href="/">
-            <img src={Logo} class="me-3 h-6 sm:h-9" alt="Flowbite Logo" />
-            <span
-                class="self-center whitespace-nowrap text-xl font-semibold dark:text-white"
+<Navbar class="bg-black">
+    <NavBrand href="/">
+        <span
+            class="self-center whitespace-nowrap text-3xl encode-sans-expanded-black text-white"
+        >
+            mercant
+        </span>
+    </NavBrand>
+    <div class="flex">
+        <form
+            id="nav-search"
+            class="border-2 border-white rounded-md p-2 flex items-center mr-4"
+            action="/search"
+        >
+            <button class="inline-flex">
+                <SearchOutline class="inline mr-2 text-white" />
+            </button>
+            <input
+                name="searchQuery"
+                class="text-white"
+                placeholder={searchPlaceholder}
+            />
+            <span class="bg-gray-600 w-0.5 h-6 inline-block mx-2" />
+            <select
+                bind:value={dropdown}
+                name="searchGroup"
+                class="text-md text-center text-white"
             >
-                Halogin
-            </span>
-        </NavBrand>
-        <NavHamburger />
-        <NavUl>
-            <div class="nav-item">
-                <NavLi href="/" active={true}>Find Deals</NavLi>
-            </div>
-            <div class="nav-item">
-                <NavLi href="/">Find Creators</NavLi>
-            </div>
-            <div class="nav-item">
-                <NavLi href="/">About Us</NavLi>
-            </div>
-            <div class="button-container">
-                <Button
-                    size="xl"
-                    color="green"
-                    class="nav-item"
-                    on:click={() => {
-                        open = true;
-                    }}
-                >
-                    Log In
-                </Button>
-                <Button size="xl" color="green" class="nav-item">Sign Up</Button
-                >
-            </div>
-        </NavUl>
-    </Navbar>
-    <Modal bind:open>
-        <GoogleLogin
-            bind:keepLoggedIn
-            onSuccess={() => (window.location.pathname = "creator/profile")}
-        />
-        <TwitchLogin
-            bind:keepLoggedIn
-            onSuccess={() => (window.location.pathname = "creator/profile")}
-        />
-        <Checkbox bind:checked={keepLoggedIn}>Keep logged in</Checkbox>
-    </Modal>
-</div>
+                <option value="creators">Creators</option>
+                <option value="brandDeals">Brand Deals</option>
+            </select>
+        </form>
+        <button
+            class="border-2 border-white rounded-md p-2 hover:bg-gray-800 text-white"
+            on:click={() => (open = true)}
+        >
+            Sign In / Sign Up
+        </button>
+    </div>
+</Navbar>
+<Modal bind:open>
+    <GoogleLogin
+        bind:keepLoggedIn
+        onSuccess={() => (window.location.pathname = "creator/profile")}
+    />
+    <TwitchLogin
+        bind:keepLoggedIn
+        onSuccess={() => (window.location.pathname = "creator/profile")}
+    />
+    <Checkbox bind:checked={keepLoggedIn}>Keep logged in</Checkbox>
+</Modal>
 
-<style>
-    .nav-item {
-        padding-top: 10px;
-        padding-bottom: 10px;
-        margin-bottom: 8px;
-        display: flex;
-        align-items: center;
-    }
-    .button-container {
-        display: flex;
-        align-items: center;
-        gap: 8px;
+<style lang="scss">
+    #nav-search {
+        input {
+            width: 300px;
+            background: transparent;
+
+            &:placeholder {
+                color: #fff;
+            }
+
+            &:focus-visible {
+                outline: 0;
+            }
+        }
+
+        select {
+            border: 0;
+            padding: 0 15px 0 0;
+            outline: 0;
+            background-position: right 0rem center;
+            background-color: transparent;
+            background-image: url("data:image/svg+xml,%3Csvg%20aria-hidden%3D%27true%27%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20fill%3D%27none%27%20viewBox%3D%270%200%2010%206%27%3E%20%3Cpath%20stroke%3D%27%23ffffff%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%20stroke-width%3D%272%27%20d%3D%27m1%201%204%204%204-4%27%2F%3E%20%3C%2Fsvg%3E");
+        }
     }
 </style>
