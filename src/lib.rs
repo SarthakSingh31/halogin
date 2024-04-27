@@ -21,11 +21,15 @@ use axum::{
     response::{Html, IntoResponse},
     routing, Router,
 };
-use diesel::pg::Pg;
+use diesel::{pg::Pg, Connection};
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
+use diesel_migrations::MigrationHarness;
 use time::Duration;
 use tokio::sync::mpsc;
 use tower_http::services::ServeDir;
+
+pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
+    diesel_migrations::embed_migrations!("migrations");
 
 pub const SESSION_COOKIE_NAME: &str = "HALOGIN-SESSION";
 pub const SESSION_COOKIE_DURATION: Duration = Duration::days(90);
@@ -43,6 +47,16 @@ pub async fn run() {
             .expect("Failed to get STORAGE_PATH")
             .leak(),
     );
+
+    // Running migrations
+    tokio::task::spawn_blocking(|| {
+        let mut conn = diesel::PgConnection::establish(db_url)
+            .expect("Failed to make connection to db to perform migrations");
+        conn.run_pending_migrations(MIGRATIONS)
+            .expect("Failed to perform migrations");
+    })
+    .await
+    .expect("Failed to execute the migration task");
 
     tokio::spawn(async move {
         async fn maintain(conn: &mut impl AsyncConnection<Backend = Pg>) -> Result<(), Error> {
@@ -145,14 +159,31 @@ pub async fn run() {
     });
 
     let app = Router::new()
-        .nest("/api/v1/creator", creator::router())
-        .nest("/api/v1/company", company::router())
-        .nest("/api/v1/google", google::router())
-        .nest("/api/v1/twitch", twitch::router())
-        .nest("/api/v1/storage", storage::router())
+        .nest(
+            "/api/v1",
+            Router::new()
+                .nest("/creator", creator::router())
+                .nest("/company", company::router())
+                .nest("/google", google::router())
+                .nest("/twitch", twitch::router())
+                .nest("/storage", storage::router())
+                .layer(
+                    tower_http::compression::CompressionLayer::new()
+                        .gzip(true)
+                        .br(true)
+                        .deflate(true)
+                        .zstd(true)
+                        .quality(tower_http::CompressionLevel::Best),
+                ),
+        )
         .nest_service(
             "/",
-            utils::AddHtmlExtService(ServeDir::new("frontend/build")),
+            utils::AddHtmlExtService(
+                ServeDir::new("frontend/build")
+                    .append_index_html_on_directories(true)
+                    .precompressed_gzip()
+                    .precompressed_br(),
+            ),
         )
         .route("/test/:id", axum::routing::get(test))
         .route("/ws", routing::get(ws::connect))
