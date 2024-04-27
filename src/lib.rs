@@ -15,6 +15,8 @@ mod twitch;
 mod utils;
 mod ws;
 
+use std::{net::SocketAddr, sync::Arc};
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -158,6 +160,24 @@ pub async fn run() {
         }
     });
 
+    let governor_conf = Arc::new(
+        tower_governor::governor::GovernorConfigBuilder::default()
+            .per_second(1)
+            .burst_size(50)
+            .finish()
+            .unwrap(),
+    );
+
+    let governor_limiter = governor_conf.limiter().clone();
+    tokio::spawn(async move {
+        const CLEANUP_INVERVAL: std::time::Duration = std::time::Duration::from_mins(1);
+
+        loop {
+            tokio::time::sleep(CLEANUP_INVERVAL).await;
+            governor_limiter.retain_recent();
+        }
+    });
+
     let app = Router::new()
         .nest(
             "/api/v1",
@@ -187,12 +207,20 @@ pub async fn run() {
         )
         .route("/test/:id", axum::routing::get(test))
         .route("/ws", routing::get(ws::connect))
+        .layer(tower_governor::GovernorLayer {
+            config: governor_conf,
+        })
         .with_state(state);
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     println!("Started server on http://localhost:3000");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 #[derive(Debug, thiserror::Error)]
