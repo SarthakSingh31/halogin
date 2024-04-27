@@ -34,7 +34,6 @@ jsonwebtoken = "9.2.0"
 mime_guess = "2.0.4"
 oauth2 = "5.0.0-alpha.3"
 pgvector = { version = "0.3", features = ["diesel"] }
-qdrant-client = "1.8.0"
 rand = "0.8.5"
 reqwest = { version = "0.12.0", features = ["json"] }
 serde = { version = "1.0.197", features = ["derive"] }
