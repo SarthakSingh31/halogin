@@ -13,7 +13,7 @@
         dropdown === "creators" ? "Find creators" : "Find brand deals";
 </script>
 
-<Navbar class="bg-black">
+<Navbar class="dark:bg-black">
     <NavBrand href="/">
         <span
             class="self-center whitespace-nowrap text-3xl encode-sans-expanded-black text-white"
