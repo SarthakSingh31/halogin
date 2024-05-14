@@ -72,7 +72,7 @@ diesel::table! {
         id -> Uuid,
         full_name -> Text,
         banner_desc -> Text,
-        logo_url -> Nullable<Text>,
+        logo_url -> Text,
         embedding -> Vector,
         created_at -> Timestamp,
     }
@@ -113,7 +113,7 @@ diesel::table! {
         given_name -> Text,
         family_name -> Text,
         pronouns -> Text,
-        pfp_path -> Nullable<Text>,
+        pfp_path -> Text,
     }
 }
 
@@ -130,7 +130,7 @@ diesel::table! {
         profile_desc -> Text,
         content_desc -> Text,
         audience_desc -> Text,
-        pfp_path -> Nullable<Text>,
+        pfp_path -> Text,
         embedding -> Vector,
     }
 }

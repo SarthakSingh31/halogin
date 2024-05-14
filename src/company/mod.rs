@@ -37,7 +37,7 @@ async fn list_users(
     Ok(Json(users.collect()))
 }
 
-async fn insert_update_profile(
+async fn insert_update_user_profile(
     user: User,
     DbConn { mut conn }: DbConn,
     storage: Storage,
@@ -47,7 +47,7 @@ async fn insert_update_profile(
 
     let missing_fields = builder.missing_fields(&PROFILE_FIELDS);
     if missing_fields.is_empty() {
-        company::insert_update_user_profile(
+        company::UserProfile::insert_update(
             user,
             &builder.fields[PROFILE_FIELDS[0]],
             &builder.fields[PROFILE_FIELDS[1]],
@@ -68,6 +68,19 @@ async fn insert_update_profile(
     }
 }
 
+async fn get_user_profile(
+    user: User,
+    DbConn { mut conn }: DbConn,
+) -> Result<Json<company::UserProfile>, Error> {
+    match company::UserProfile::get(user, &mut conn).await? {
+        Some(profile) => Ok(Json(profile)),
+        None => Err(Error::Custom {
+            status_code: StatusCode::NOT_FOUND,
+            error: "No company user profile found for this user".into(),
+        }),
+    }
+}
+
 #[derive(serde::Serialize)]
 struct InsertResponse {
     company_id: Uuid,
@@ -84,7 +97,7 @@ async fn insert_company(
 
     let missing_fields = builder.missing_fields(&COMPANY_FIELDS);
     if missing_fields.is_empty() {
-        let company_id = company::insert(
+        let company_id = company::CompanyInsertUpdate::insert(
             &builder.fields[COMPANY_FIELDS[0]],
             &builder.fields[COMPANY_FIELDS[1]],
             builder.fields.get("logo_hidden").map(|s| s.as_str()),
@@ -132,7 +145,7 @@ async fn update_company(
 
     let missing_fields = builder.missing_fields(&COMPANY_FIELDS);
     if missing_fields.is_empty() {
-        company::update(
+        company::CompanyInsertUpdate::update(
             company_id,
             &builder.fields[COMPANY_FIELDS[0]],
             &builder.fields[COMPANY_FIELDS[1]],
@@ -151,6 +164,15 @@ async fn update_company(
             error: format!("Missing fields: {missing_fields:?}"),
         })
     }
+}
+
+async fn get_companies(
+    user: User,
+    DbConn { mut conn }: DbConn,
+) -> Result<Json<Vec<company::Company>>, Error> {
+    company::Company::list_for_user(user, &mut conn)
+        .await
+        .map(Json)
 }
 
 #[derive(serde::Deserialize)]
@@ -213,14 +235,51 @@ async fn uninvite_user_to_company(
     Ok(())
 }
 
+async fn get_invites(
+    user: User,
+    DbConn { mut conn }: DbConn,
+) -> Result<Json<Vec<company::CompanyInvitationDetailed>>, Error> {
+    company::CompanyInvitationDetailed::list(user, &mut conn)
+        .await
+        .map(Json)
+}
+
+async fn accept_invitation(
+    user: User,
+    DbConn { mut conn }: DbConn,
+    Path(company_id): Path<Uuid>,
+) -> Result<(), Error> {
+    company::accept_invitation(user, company_id, &mut conn).await
+}
+
+async fn reject_invitation(
+    user: User,
+    DbConn { mut conn }: DbConn,
+    Path(company_id): Path<Uuid>,
+) -> Result<(), Error> {
+    company::reject_invitation(user, company_id, &mut conn).await
+}
+
 pub fn router() -> Router<crate::state::AppState> {
     Router::new()
-        .route("/", routing::post(insert_company))
-        .route("/user-profile", routing::post(insert_update_profile))
+        .route("/", routing::get(get_companies).post(insert_company))
         .route("/:company-id", routing::patch(update_company))
         .route("/:company-id/user", routing::get(list_users))
         .route(
             "/:company-id/invite",
             routing::post(invite_user_to_company).delete(uninvite_user_to_company),
         )
+        .route(
+            "/:company-id/invite/accept",
+            routing::get(accept_invitation),
+        )
+        .route(
+            "/:company-id/invite/reject",
+            routing::get(reject_invitation),
+        )
+        .route(
+            "/user-profile",
+            routing::get(get_user_profile).post(insert_update_user_profile),
+        )
+        .route("/invite", routing::get(get_invites))
 }

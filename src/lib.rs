@@ -33,7 +33,8 @@ use tower_http::services::ServeDir;
 pub const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
     diesel_migrations::embed_migrations!("migrations");
 
-pub const SESSION_COOKIE_NAME: &str = "HALOGIN-SESSION";
+pub const SESSION_COOKIE_NAME: &str = "MERCANT-SESSION";
+pub const USER_ID_COOKIE_NAME: &str = "MERCANT-USER-ID";
 pub const SESSION_COOKIE_DURATION: Duration = Duration::days(90);
 
 pub const MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_days(1);
@@ -194,7 +195,10 @@ pub async fn run() {
                         .deflate(true)
                         .zstd(true)
                         .quality(tower_http::CompressionLevel::Best),
-                ),
+                )
+                .layer(tower_governor::GovernorLayer {
+                    config: governor_conf,
+                }),
         )
         .nest_service(
             "/",
@@ -207,9 +211,6 @@ pub async fn run() {
         )
         .route("/test/:id", axum::routing::get(test))
         .route("/ws", routing::get(ws::connect))
-        .layer(tower_governor::GovernorLayer {
-            config: governor_conf,
-        })
         .with_state(state);
 
     // run our app with hyper, listening globally on port 3000

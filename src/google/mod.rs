@@ -1,14 +1,16 @@
 mod youtube;
 
-use axum::{routing, Router};
+use axum::{routing, Json, Router};
 use diesel::pg::Pg;
 use diesel_async::AsyncConnection;
+use futures::StreamExt;
 use oauth2::{AccessToken, ExtraTokenFields, RefreshToken};
 use time::PrimitiveDateTime;
 
 use crate::{
     db::{GoogleAccount, User},
-    utils::oauth::OAuthAccountHelper,
+    state::DbConn,
+    utils::{oauth::OAuthAccountHelper, AuthenticationHeader},
     Error,
 };
 
@@ -111,5 +113,73 @@ impl OAuthAccountHelper for GoogleSession {
 pub fn router() -> Router<crate::state::AppState> {
     Router::new()
         .route("/login", routing::post(GoogleSession::login))
+        .route("/profile_photo", routing::get(ProfilePhoto::list))
         .route("/youtube/channel", routing::get(youtube::Channel::list))
+}
+
+#[derive(serde::Serialize)]
+struct ProfilePhoto {
+    primary: bool,
+    url: String,
+}
+
+impl ProfilePhoto {
+    async fn list(
+        user: User,
+        DbConn { mut conn }: DbConn,
+    ) -> Result<Json<Vec<ProfilePhoto>>, Error> {
+        #[derive(serde::Deserialize)]
+        struct Response {
+            photos: Vec<Photo>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct Photo {
+            metadata: PhotoMetadata,
+            url: String,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct PhotoMetadata {
+            #[serde(default)]
+            primary: bool,
+        }
+
+        let mut photos = Vec::default();
+        let client = reqwest::Client::default();
+
+        let accounts = GoogleAccount::list(user, &mut conn).await?;
+
+        let mut account_headers = Vec::with_capacity(accounts.len());
+        for mut account in accounts {
+            let headers = account.headers(&mut conn).await?;
+            account_headers.push(headers);
+        }
+
+        let mut responses = futures::stream::iter(account_headers)
+            .map(|headers| {
+                let client = client.clone();
+                async move {
+                    let req = client
+                        .get("https://people.googleapis.com/v1/people/me?personFields=photos")
+                        .headers(headers)
+                        .build()?;
+                    let resp: Response = client.execute(req).await?.json().await?;
+
+                    Result::<_, Error>::Ok(resp)
+                }
+            })
+            .buffer_unordered(10);
+
+        while let Some(response) = responses.next().await {
+            for photo in response?.photos {
+                photos.push(ProfilePhoto {
+                    primary: photo.metadata.primary,
+                    url: photo.url,
+                });
+            }
+        }
+
+        return Ok(Json(photos));
+    }
 }

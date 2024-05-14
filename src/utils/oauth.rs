@@ -198,7 +198,7 @@ pub trait OAuthAccountHelper: Sized {
         DbConn { mut conn }: DbConn,
         Json(login_params): Json<LoginParams>,
     ) -> Result<
-        Either<Json<Self::Response>, ([(HeaderName, String); 1], Json<Self::Response>)>,
+        Either<Json<Self::Response>, ([(HeaderName, String); 2], Json<Self::Response>)>,
         Error,
     > {
         let session = Self::from_code(login_params.redirect_origin, login_params.code).await?;
@@ -220,22 +220,25 @@ pub trait OAuthAccountHelper: Sized {
 
             let session = UserSession::new_for_user(user, expires_at, &mut conn).await?;
 
-            let mut cookie = Cookie::new(crate::SESSION_COOKIE_NAME, session.token);
+            let mut session_cookie = Cookie::new(crate::SESSION_COOKIE_NAME, session.token);
+            let mut user_id_cookie = Cookie::new(crate::USER_ID_COOKIE_NAME, user.id.to_string());
 
-            cookie.set_secure(true);
-            cookie.set_http_only(true);
+            session_cookie.set_secure(true);
+            session_cookie.set_http_only(true);
+            session_cookie.set_path("/");
+            user_id_cookie.set_path("/");
             if login_params.keep_logged_in {
-                cookie.set_expires(OffsetDateTime::new_utc(
-                    expires_at.date(),
-                    expires_at.time(),
-                ));
+                let expire_time = OffsetDateTime::new_utc(expires_at.date(), expires_at.time());
+                session_cookie.set_expires(expire_time);
+                user_id_cookie.set_expires(expire_time);
             }
-            cookie.set_path("/");
-            cookie.set_secure(true);
 
             let headers = acct.headers(&mut conn).await?;
             Either::E2((
-                [(SET_COOKIE, cookie.encoded().to_string())],
+                [
+                    (SET_COOKIE, session_cookie.encoded().to_string()),
+                    (SET_COOKIE, user_id_cookie.encoded().to_string()),
+                ],
                 Json(Self::Response::get(&mut acct, &reqwest::Client::new(), headers).await?),
             ))
         };

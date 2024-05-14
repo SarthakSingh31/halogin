@@ -24,7 +24,7 @@ CREATE TABLE CreatorProfile (
     profile_desc TEXT NOT NULL,
     content_desc TEXT NOT NULL,
     audience_desc TEXT NOT NULL,
-    pfp_path TEXT,
+    pfp_path TEXT NOT NULL,
     embedding VECTOR(1536) NOT NULL,
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
 );

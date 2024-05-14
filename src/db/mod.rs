@@ -265,7 +265,7 @@ pub struct CreatorProfileQuery {
     pub profile_desc: String,
     pub content_desc: String,
     pub audience_desc: String,
-    pub pfp_path: Option<String>,
+    pub pfp_path: String,
 }
 
 impl CreatorProfileQuery {
@@ -292,7 +292,7 @@ pub struct UserProfile {
     pub given_name: String,
     pub family_name: String,
     pub pronouns: String,
-    pub pfp_path: Option<String>,
+    pub pfp_path: String,
 }
 
 impl UserProfile {

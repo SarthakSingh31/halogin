@@ -4,7 +4,7 @@ CREATE TABLE Company (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     full_name TEXT NOT NULL,
     banner_desc TEXT NOT NULL,
-    logo_url TEXT,
+    logo_url TEXT NOT NULL,
     embedding VECTOR(1536) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -25,7 +25,7 @@ CREATE TABLE CompanyUserProfile (
     given_name TEXT NOT NULL,
     family_name TEXT NOT NULL,
     pronouns TEXT NOT NULL,
-    pfp_path TEXT,
+    pfp_path TEXT NOT NULL,
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES InnerUser(id) ON DELETE CASCADE
 );
 
